@@ -65,6 +65,10 @@ function App() {
 
 ## Advanced Usages
 
+## Addons
+
+1. [remos-immer](<[remos-immer](https://www.npmjs.com/package/remos-immer)>)
+
 ## API References
 
 ### create(props: Object)
