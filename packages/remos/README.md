@@ -67,7 +67,7 @@ function App() {
 
 ## Addons
 
-1. [remos-immer](<[remos-immer](https://www.npmjs.com/package/remos-immer)>)
+1. [remos-immer](https://www.npmjs.com/package/remos-immer)
 
 ## API References
 
