@@ -1,17 +1,17 @@
-# remit
+# remos
 
 ## Installation
 
 **NPM**
 
 ```bash
-npm i remit --save
+npm i remos --save
 ```
 
 **YARN**
 
 ```bash
-yarn add remit
+yarn add remos
 ```
 
 ## Features
@@ -25,7 +25,7 @@ yarn add remit
 ### Counter App (5 lines of code only)
 
 ```js
-import { useModel } from "remit";
+import { useModel } from "remos";
 const App = () => {
   const model = useModel(() => ({ count: 1 }));
   return <h1 onClick={() => model.count++}>{model.count}</h1>;
@@ -35,7 +35,7 @@ const App = () => {
 ### Sharing model between multiple components
 
 ```js
-import { useModel } from "remit";
+import { useModel } from "remos";
 
 function Collapsible({ model, children }) {
   // bind model to the component
