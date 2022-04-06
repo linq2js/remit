@@ -217,6 +217,31 @@ counterModel.count++; // model changed
 
 #### $wrap(wrapper), $wrap(wrappers)
 
+Register model method wrapper. The wrapper will be called when model method is binding
+
+```js
+import { create, inject } from "remos";
+
+inject((api) =>
+  api.$wrap((method, model) => {
+    // return a new wrapped method
+    return (...args) => {
+      console.log(`${method.name || method.displayName} called`);
+      return method.apply(model, args);
+    };
+  })
+);
+
+const counterModel = create({
+  count: 1,
+  increment() {
+    this.count++;
+  },
+});
+
+counterModel.increment(); // increment called
+```
+
 #### $observe(observer), $observe(observers)
 
 ### Model Lifecycles

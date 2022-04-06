@@ -279,6 +279,9 @@ const create: CreateModel = (props) => {
       return this;
     },
     $wrap(input) {
+      if (!isCreating) {
+        throw new Error("This api must be called inside injector function");
+      }
       wrappers.push(...(Array.isArray(input) ? input : [input]));
       return this;
     },
@@ -441,6 +444,8 @@ const create: CreateModel = (props) => {
       },
     });
   });
+
+  isCreating = false;
 
   model.onCreate?.();
 
