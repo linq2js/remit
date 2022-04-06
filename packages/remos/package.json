@@ -1,12 +1,12 @@
 {
   "name": "remos",
   "version": "0.0.4",
-  "description": "",
+  "description": "React Model Oriented Store",
   "author": "linq2js <linqtojs@gmail.com>",
   "repository": {
-    "url": "https://github.com/linq2js/modx"
+    "url": "https://github.com/linq2js/remos"
   },
-  "homepage": "https://linq2js.github.io/modx/",
+  "homepage": "https://linq2js.github.io/remos/",
   "license": "ISC",
   "main": "dist/tsc/main.js",
   "types": "dist/tsc/main.d.ts",
