@@ -197,7 +197,7 @@ counterModel.count++; // model changed
 counterModel.count++; // model changed
 ```
 
-### Model instance
+### Model API
 
 #### $clone()
 
@@ -218,3 +218,23 @@ counterModel.count++; // model changed
 #### $wrap(wrapper), $wrap(wrappers)
 
 #### $observe(observer), $observe(observers)
+
+### Model Lifecycles
+
+```js
+import { create } from "remos";
+
+const counterModel = create({
+  count: 1,
+  onCreate: () => console.log("create"),
+  onInit: () => console.log("init"),
+  onChange: () => console.log("change"),
+  onConnect: () => console.log("connect"),
+  onDisconnect: () => console.log("disconnect"),
+});
+
+// onCreate()
+counterModel.count++; // oninit() => onChange()
+const unsubscribe = counterModel.listen(() => {}); // onConnect()
+unsubscribe(); // onDisconnect()
+```

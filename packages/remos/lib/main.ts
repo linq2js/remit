@@ -198,7 +198,10 @@ const create: CreateModel = (props) => {
   const observers: Observer[] = [];
   const listeners: Function[] = [];
   const wrappers: Wrapper[] = [];
-  const notify = () => listeners.slice().forEach((x) => x());
+  const notifyChange = () => {
+    model?.onChange?.();
+    listeners.slice().forEach((x) => x());
+  };
 
   // clone prop
   const values: any = { ...props };
@@ -246,13 +249,19 @@ const create: CreateModel = (props) => {
           const lazyToken = changeToken;
           enqueue(() => {
             if (lazyToken !== changeToken) return;
-            notify();
+            notifyChange();
           });
         } else {
-          notify();
+          notifyChange();
         }
       }
     }
+  }
+
+  function init() {
+    if (initialized) return;
+    initialized = true;
+    model.onInit?.();
   }
 
   api = {
@@ -280,6 +289,7 @@ const create: CreateModel = (props) => {
       return create({ ...props, ...newProps });
     },
     $batch(updater, lazy) {
+      init();
       call(updater, [model], !!lazy);
     },
     $wait(selector, compareFn = strictCompare): any {
@@ -321,6 +331,9 @@ const create: CreateModel = (props) => {
     },
     $listen(...args: any[]) {
       let listener: Function;
+
+      init();
+
       if (typeof args[0] !== "function") {
         if (Array.isArray(args[0])) {
           const prev: Record<string, any> = {};
@@ -351,12 +364,8 @@ const create: CreateModel = (props) => {
       } else {
         listener = args[0];
       }
-      if (!initialized) {
-        initialized = true;
-        model.onInit?.();
-      }
 
-      model.onConnected?.();
+      model.onConnect?.();
       listeners.push(listener);
       let active = true;
       return () => {
@@ -364,7 +373,7 @@ const create: CreateModel = (props) => {
         active = false;
         const index = listeners.indexOf(listener);
         listeners.splice(index, 1);
-        model.onDisconnected?.();
+        model.onDisconnect?.();
       };
     },
     $assign(props: any, lazy?: boolean) {
@@ -417,16 +426,18 @@ const create: CreateModel = (props) => {
     Object.defineProperty(model, key, {
       enumerable: true,
       get: () => {
+        init();
         emit("read", key);
         return values[key];
       },
       set: (value: any) => {
+        init();
         emit("write", { prop: key, value });
         if (value === values[key]) return;
         values[key] = value;
         changeToken = {};
         if (updatingJobs) return;
-        notify();
+        notifyChange();
       },
     });
   });

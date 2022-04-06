@@ -21,12 +21,10 @@ yarn add remos-immer
 With remos-immer
 
 ```js
-import { create, configure } from "remos";
-import { immerWrapper } from "remos-immer";
+import { create, inject } from "remos";
+import { withImmer } from "remos-immer";
 
-configure({
-  wrap: [immerWrapper],
-});
+inject(withImmer());
 
 const todoModel = create({
   todos: [],
