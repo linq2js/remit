@@ -2,6 +2,8 @@ import * as React from "react";
 
 type Monitor = (type: "read" | "write", value: any) => void;
 
+type Wrapper = (next: Function, model: Model) => Function;
+
 interface ModelApi<TModel extends {} = {}> {
   /**
    * clone to new model
@@ -64,6 +66,10 @@ interface ModelApi<TModel extends {} = {}> {
   $batch(updater: (model: Model<TModel>) => void, lazy?: boolean): void;
 }
 
+interface Configs {
+  wrap?: Wrapper[];
+}
+
 interface InternalModelApi<TModel = {}> extends ModelApi<TModel> {
   $$type: any;
 
@@ -114,6 +120,7 @@ interface UseModelOptions<TModel extends {} = {}> {
 const effectHook = React.useEffect;
 const modelType = {};
 const enqueue = Promise.resolve().then.bind(Promise.resolve());
+const globalConfigs: Configs = {};
 
 function strictCompare(a: any, b: any) {
   return a === b;
@@ -309,10 +316,17 @@ const create: CreateModel = (props) => {
       return;
     }
     if (typeof values[key] === "function") {
-      model[key] = (...args: any[]) => call(values[key], args, false);
+      let method = values[key];
+
+      globalConfigs.wrap?.forEach((wrapper) => {
+        method = wrapper(method, model);
+      });
+
+      model[key] = (...args: any[]) => call(method, args, false);
       return;
     }
     Object.defineProperty(model, key, {
+      enumerable: true,
       get: () => {
         monitor?.("read", key);
         return values[key];
@@ -405,4 +419,17 @@ const useModel: UseModel = (...args: any[]): any => {
   return models[0];
 };
 
-export { Model, UseModel, useModel, create, shallowCompare, strictCompare };
+function configure(configs: Configs) {
+  Object.assign(globalConfigs, configs);
+}
+
+export {
+  Model,
+  UseModel,
+  Wrapper,
+  useModel,
+  create,
+  configure,
+  shallowCompare,
+  strictCompare,
+};

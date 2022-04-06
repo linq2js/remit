@@ -1,7 +1,7 @@
 {
-  "name": "remos",
-  "version": "0.0.5",
-  "description": "React Model Oriented Store",
+  "name": "remos-immer",
+  "version": "0.0.0",
+  "description": "An Immer wrapper for Remos",
   "author": "linq2js <linqtojs@gmail.com>",
   "repository": {
     "url": "https://github.com/linq2js/remos"
@@ -19,8 +19,8 @@
     "dist/tsc"
   ],
   "peerDependencies": {
-    "react": "^18.0.0",
-    "react-don": "^18.0.0"
+    "remos": "^0.0.6",
+    "immer": "^9.0.12"
   },
   "scripts": {
     "prepublishOnly": "yarn test && yarn && yarn build",
