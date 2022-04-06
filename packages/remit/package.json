@@ -1,0 +1,41 @@
+{
+  "name": "remit",
+  "version": "0.0.0",
+  "description": "",
+  "author": "linq2js <linqtojs@gmail.com>",
+  "repository": {
+    "url": "https://github.com/linq2js/remit"
+  },
+  "homepage": "https://linq2js.github.io/remit/",
+  "license": "ISC",
+  "main": "dist/tsc/main.js",
+  "types": "dist/tsc/main.d.ts",
+  "directories": {
+    "lib": "lib",
+    "test": "__tests__"
+  },
+  "files": [
+    "lib",
+    "dist/tsc"
+  ],
+  "peerDependencies": {
+    "react": "^18.0.0"
+  },
+  "scripts": {
+    "prepublishOnly": "yarn test && yarn && yarn build",
+    "cli": "ts-node lib/cli.ts",
+    "lint": "eslint lib/ --ext .js,.jsx,.ts,.tsx",
+    "test": "jest",
+    "clean": "rm -rf dist build package",
+    "ts-node": "ts-node",
+    "build": "tsc -p tsconfig.json",
+    "build-all": "yarn clean && yarn build && yarn esbuild-node && yarn esbuild-browser && yarn esbuild-web",
+    "esbuild-web": "esbuild lib/main.ts --bundle --platform=node --minify --sourcemap=external --outfile=dist/esbuild/web.js",
+    "esbuild-browser": "esbuild lib/browser.ts --bundle --minify --sourcemap=external --outfile=dist/esbuild/browser.js",
+    "esbuild-browser:dev": "esbuild lib/browser.ts --bundle --outfile=dist/esbuild/browser.js",
+    "esbuild-browser:watch": "esbuild lib/browser.ts --bundle --watch --outfile=dist/esbuild/browser.js",
+    "esbuild-node": "esbuild lib/cli.ts --bundle --platform=node --minify --sourcemap=external --outfile=dist/esbuild/cli.js",
+    "esbuild-node:dev": "esbuild lib/cli.ts --bundle --platform=node --sourcemap=external --outfile=dist/esbuild/cli.js",
+    "esbuild-node:watch": "esbuild lib/cli.ts --bundle --platform=node --watch --sourcemap=external --outfile=dist/esbuild/cli.js"
+  }
+}
