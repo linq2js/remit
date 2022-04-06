@@ -1,12 +1,12 @@
 {
-  "name": "remit",
+  "name": "remos",
   "version": "0.0.1",
   "description": "",
   "author": "linq2js <linqtojs@gmail.com>",
   "repository": {
-    "url": "https://github.com/linq2js/remit"
+    "url": "https://github.com/linq2js/modx"
   },
-  "homepage": "https://linq2js.github.io/remit/",
+  "homepage": "https://linq2js.github.io/modx/",
   "license": "ISC",
   "main": "dist/tsc/main.js",
   "types": "dist/tsc/main.d.ts",
@@ -19,13 +19,14 @@
     "dist/tsc"
   ],
   "peerDependencies": {
-    "react": "^18.0.0"
+    "react": "^18.0.0",
+    "react-don": "^18.0.0"
   },
   "scripts": {
     "prepublishOnly": "yarn test && yarn && yarn build",
     "cli": "ts-node lib/cli.ts",
     "lint": "eslint lib/ --ext .js,.jsx,.ts,.tsx",
-    "test": "jest",
+    "test": "jest --passWithNoTests",
     "clean": "rm -rf dist build package",
     "ts-node": "ts-node",
     "build": "tsc -p tsconfig.json",
@@ -37,5 +38,8 @@
     "esbuild-node": "esbuild lib/cli.ts --bundle --platform=node --minify --sourcemap=external --outfile=dist/esbuild/cli.js",
     "esbuild-node:dev": "esbuild lib/cli.ts --bundle --platform=node --sourcemap=external --outfile=dist/esbuild/cli.js",
     "esbuild-node:watch": "esbuild lib/cli.ts --bundle --platform=node --watch --sourcemap=external --outfile=dist/esbuild/cli.js"
+  },
+  "devDependencies": {
+    "@types/jest": "^27.4.1"
   }
 }
