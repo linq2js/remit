@@ -6,7 +6,10 @@ type Injector = <TProps>(api: ModelApi<TProps>, props: TProps) => void;
 
 const typeProp = "$$type";
 
-interface ModelApi<TModel extends {} = {}> {
+interface ModelBase {}
+
+interface ModelApi<TModel extends ModelBase = {}> {
+  readonly $model: Model<TModel>;
   /**
    * clone to new model
    */
@@ -16,7 +19,9 @@ interface ModelApi<TModel extends {} = {}> {
    * extend current model
    * @param props
    */
-  $extend<TNewModel extends {}>(props: TNewModel): Model<TModel & TNewModel>;
+  $extend<TNewModel extends ModelBase>(
+    props: TNewModel
+  ): Model<TModel & TNewModel>;
 
   /**
    * Reset all props of the model to initial values
@@ -78,7 +83,8 @@ interface ModelApi<TModel extends {} = {}> {
   $wrap(wrappers: Wrapper[]): this;
 }
 
-interface InternalModelApi<TModel = {}> extends ModelApi<TModel> {
+interface InternalModelApi<TModel extends ModelBase = {}>
+  extends ModelApi<TModel> {
   [typeProp]: any;
 }
 
@@ -91,21 +97,21 @@ type Model<T = {}> = {
 } & ModelApi<T>;
 
 interface CreateModel {
-  <TModel extends {}>(props: TModel): Model<TModel>;
+  <TModel extends ModelBase>(props: TModel): Model<TModel>;
 }
 
 interface UseModel {
-  <TModel extends {}>(
+  <TModel extends ModelBase>(
     creator: (create: CreateModel) => TModel,
     options?: UseModelOptions<TModel>
   ): Model<TModel>;
 
-  <TModel extends {}>(
+  <TModel extends ModelBase>(
     creator: (create: CreateModel) => TModel,
     autoUpdate: boolean
   ): Model<TModel>;
 
-  <TModel extends {}>(
+  <TModel extends ModelBase>(
     creator: (create: CreateModel) => TModel,
     updater?: (prev: TModel) => Partial<TModel>
   ): Model<TModel>;
@@ -118,7 +124,7 @@ interface UseModel {
   (models: Model[], options?: Omit<UseModelOptions<any>, "updater">): void;
 }
 
-interface UseModelOptions<TModel extends {} = {}> {
+interface UseModelOptions<TModel extends ModelBase = {}> {
   onChange?: (model: TModel) => void;
   updater?: (prev: TModel) => Partial<TModel>;
 }
@@ -188,6 +194,7 @@ const create: CreateModel = (props) => {
   let model: any;
   let initialized = false;
   let api: InternalModelApi;
+  let isCreating = true;
   const observers: Observer[] = [];
   const listeners: Function[] = [];
   const wrappers: Wrapper[] = [];
@@ -250,6 +257,14 @@ const create: CreateModel = (props) => {
 
   api = {
     [typeProp]: undefined,
+    get $model() {
+      if (isCreating) {
+        throw new Error(
+          "Model is not ready. It seems you are trying to access the $model inside injector"
+        );
+      }
+      return model;
+    },
     $observe(input) {
       observers.push(...(Array.isArray(input) ? input : [input]));
       return this;
@@ -359,9 +374,14 @@ const create: CreateModel = (props) => {
 
   model = { ...api };
 
-  Object.defineProperty(model, typeProp, {
-    enumerable: false,
-    get: () => modelType,
+  Object.defineProperties(model, {
+    [typeProp]: {
+      enumerable: false,
+      get: () => modelType,
+    },
+    $model: {
+      get: () => model,
+    },
   });
 
   // injector must run before property bindings
@@ -489,7 +509,7 @@ const useModel: UseModel = (...args: any[]): any => {
 };
 
 /**
- * register injectors that will inject to the model at the initializing phase
+ * register injectors that will inject to the model at the creating phase
  * @param injectors
  */
 function inject(...injectors: Injector[]) {

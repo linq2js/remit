@@ -181,6 +181,22 @@ function App() {
 
 This hook works likely useModel(model) overload but it is for multiple models binding
 
+### inject(...injectors)
+
+Register injector that will be called at creating phase
+
+```js
+import { inject, create } from "remos";
+
+inject((modelApi) => {
+  modelApi.$listen(() => console.log("model changed"));
+});
+
+const counterModel = create({ count: 1 });
+counterModel.count++; // model changed
+counterModel.count++; // model changed
+```
+
 ### Model instance
 
 #### $clone()
@@ -198,3 +214,7 @@ This hook works likely useModel(model) overload but it is for multiple models bi
 #### $watch()
 
 #### $when()
+
+#### $wrap(wrapper), $wrap(wrappers)
+
+#### $observe(observer), $observe(observers)
