@@ -1,11 +1,11 @@
 import produce from "immer";
-import { Model } from "remos";
+import { Model, ModelApi } from "remos";
 
-interface ImmerWrapperOptions {
+interface WithImmerOptions {
   ignore?: string | RegExp | ((method: Function, model: Model) => boolean);
 }
 
-function immerWrapper(options?: ImmerWrapperOptions) {
+function withImmer(options?: WithImmerOptions) {
   const { ignore } = options ?? {};
   const ignoreFn = !ignore
     ? undefined
@@ -14,23 +14,37 @@ function immerWrapper(options?: ImmerWrapperOptions) {
     : ignore instanceof RegExp
     ? (next: any) => ignore.test(next.name || next.displayName)
     : (next: any) => (next.name || next.displayName) === ignore;
-  return (next: Function, model: any) =>
-    ignoreFn?.(next, model)
-      ? next
-      : Object.assign(
-          (...args: any[]) => {
-            let result: any;
-            // retrive changes
-            const changes: any = produce(model, (draft: any) => {
-              result = next.apply(draft, args);
-            });
-            model.$assign(changes);
-            return result;
-          },
-          {
-            displayName: next.name || (next as any).displayName,
-          }
-        );
+  return (api: ModelApi) =>
+    api.$wrap((method: Function, model: Model) =>
+      ignoreFn?.(method, model)
+        ? method
+        : Object.assign(
+            (...args: any[]) => {
+              let result: any;
+              // retrive changes
+              const changes: any = produce(model, (draft: any) => {
+                result = method.apply(draft, args);
+              });
+              model.$assign(changes);
+              return result;
+            },
+            {
+              displayName: method.name || (method as any).displayName,
+            }
+          )
+    );
 }
 
-export { immerWrapper };
+// function producable<T = any>(fn: Function) {
+//   return function (this: T, ...args: any[]) {
+//     let result: any;
+//     const changes = produce(this, (draft: any) => {
+//       result = fn(draft, ...args);
+//     });
+//     // assume that 'this' is model
+//     (this as any).$assign?.(changes);
+//     return result;
+//   };
+// }
+
+export { withImmer };

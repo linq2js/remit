@@ -1,8 +1,8 @@
 import * as React from "react";
 
-type Monitor = (type: "read" | "write", value: any) => void;
-
+type Observer = (type: "read" | "write" | "call", value: any) => void;
 type Wrapper = (next: Function, model: Model) => Function;
+type Injector = <TProps>(api: ModelApi<TProps>, props: TProps) => void;
 
 const typeProp = "$$type";
 
@@ -52,10 +52,15 @@ interface ModelApi<TModel extends {} = {}> {
    * @param compareFn
    */
   $watch<TResult>(
-    selector: (model: TModel) => any,
+    selector: (model: TModel) => TResult,
     callback: (result: TResult) => void,
     compareFn?: (a: TResult, b: TResult) => boolean
   ): VoidFunction;
+
+  $wait<TResult>(
+    selector: (model: TModel) => TResult,
+    compareFn?: (a: TResult, b: TResult) => boolean
+  ): Promise<TResult>;
 
   /**
    * Assign specified props to the model.
@@ -66,15 +71,15 @@ interface ModelApi<TModel extends {} = {}> {
   $assign(props: Partial<TModel>, lazy?: boolean): void;
 
   $batch(updater: (model: Model<TModel>) => void, lazy?: boolean): void;
-}
 
-interface Configs {
-  wrap?: Wrapper[];
+  $observe(observer: Observer): this;
+  $observe(observers: Observer[]): this;
+  $wrap(wrapper: Wrapper): this;
+  $wrap(wrappers: Wrapper[]): this;
 }
 
 interface InternalModelApi<TModel = {}> extends ModelApi<TModel> {
   [typeProp]: any;
-  $$monitor(monitor: Monitor): VoidFunction;
 }
 
 type Model<T = {}> = {
@@ -121,7 +126,7 @@ interface UseModelOptions<TModel extends {} = {}> {
 const effectHook = React.useEffect;
 const modelType = {};
 const enqueue = Promise.resolve().then.bind(Promise.resolve());
-const globalConfigs: Configs = {};
+let globalInjectors: Injector[] | undefined;
 
 function strictCompare(a: any, b: any) {
   return a === b;
@@ -160,10 +165,20 @@ function shallowCompare(a: any, b: any) {
   return false;
 }
 
+/**
+ * check the value is whether model or not
+ * @param value
+ * @returns
+ */
 function isModel(value: any) {
   return value?.[typeProp] === modelType;
 }
 
+/**
+ * create a model with specified props
+ * @param props
+ * @returns
+ */
 const create: CreateModel = (props) => {
   if (!props) throw new Error("Invalid model props");
   if (isModel(props)) return props;
@@ -173,12 +188,18 @@ const create: CreateModel = (props) => {
   let model: any;
   let initialized = false;
   let api: InternalModelApi;
-  let monitor: Monitor | undefined;
+  const observers: Observer[] = [];
   const listeners: Function[] = [];
+  const wrappers: Wrapper[] = [];
   const notify = () => listeners.slice().forEach((x) => x());
 
   // clone prop
   const values: any = { ...props };
+
+  function emit(...args: Parameters<Observer>) {
+    const [type, value] = args;
+    observers.forEach((o) => o(type, value));
+  }
 
   function assign(props: any) {
     if (props === model) return;
@@ -229,13 +250,13 @@ const create: CreateModel = (props) => {
 
   api = {
     [typeProp]: undefined,
-    $$monitor(m) {
-      monitor = m;
-      return () => {
-        if (m === monitor) {
-          monitor = undefined;
-        }
-      };
+    $observe(input) {
+      observers.push(...(Array.isArray(input) ? input : [input]));
+      return this;
+    },
+    $wrap(input) {
+      wrappers.push(...(Array.isArray(input) ? input : [input]));
+      return this;
     },
     $clone() {
       return create(props);
@@ -246,11 +267,26 @@ const create: CreateModel = (props) => {
     $batch(updater, lazy) {
       call(updater, [model], !!lazy);
     },
+    $wait(selector, compareFn = strictCompare): any {
+      let prev = selector(model);
+      let cancel: Function | undefined;
+      const promise = new Promise((resolve) => {
+        cancel = api.$listen(() => {
+          const next = selector(model);
+          if (!compareFn(prev, next)) {
+            prev = next;
+            cancel?.();
+            resolve(next);
+          }
+        });
+      });
+      return Object.assign(promise, { cancel: () => cancel?.() });
+    },
     $watch(selector, callback, compareFn = strictCompare) {
       let prev = selector(model);
       return api.$listen(() => {
         const next = selector(model);
-        if (compareFn(prev, next)) {
+        if (!compareFn(prev, next)) {
           prev = next;
           call(callback, [next], false);
         }
@@ -328,29 +364,44 @@ const create: CreateModel = (props) => {
     get: () => modelType,
   });
 
+  // injector must run before property bindings
+  globalInjectors?.forEach((injector) => injector(api, props));
+
   Object.keys(values).forEach((key) => {
+    // skip special props
+    if (key[0] === "$") {
+      return;
+    }
+    // private prop
     if (key[0] === "_") {
       model[key] = values[key];
       return;
     }
+
+    // method
     if (typeof values[key] === "function") {
       let method = values[key];
 
-      globalConfigs.wrap?.forEach((wrapper) => {
+      wrappers.forEach((wrapper) => {
         method = wrapper(method, model);
       });
 
-      model[key] = (...args: any[]) => call(method, args, false);
+      model[key] = (...args: any[]) => {
+        emit("call", values[key]);
+        return call(method, args, false);
+      };
       return;
     }
+
+    // public prop
     Object.defineProperty(model, key, {
       enumerable: true,
       get: () => {
-        monitor?.("read", key);
+        emit("read", key);
         return values[key];
       },
       set: (value: any) => {
-        monitor?.("write", { prop: key, value });
+        emit("write", { prop: key, value });
         if (value === values[key]) return;
         values[key] = value;
         changeToken = {};
@@ -437,18 +488,23 @@ const useModel: UseModel = (...args: any[]): any => {
   return models[0];
 };
 
-function configure(configs: Configs) {
-  Object.assign(globalConfigs, configs);
+/**
+ * register injectors that will inject to the model at the initializing phase
+ * @param injectors
+ */
+function inject(...injectors: Injector[]) {
+  globalInjectors = injectors;
 }
 
 export {
   Model,
+  ModelApi,
   UseModel,
   Wrapper,
   isModel,
   useModel,
   create,
-  configure,
+  inject,
   shallowCompare,
   strictCompare,
 };

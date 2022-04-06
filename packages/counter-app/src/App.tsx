@@ -1,10 +1,8 @@
 import "./App.css";
-import { useModel, configure } from "remos";
-import { immerWrapper } from "remos-immer";
+import { useModel, inject } from "remos";
+import { withImmer } from "remos-immer";
 
-configure({
-  wrap: [immerWrapper()],
-});
+inject(withImmer());
 
 const originalArray = [] as number[];
 

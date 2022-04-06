@@ -194,3 +194,7 @@ This hook works likely useModel(model) overload but it is for multiple models bi
 #### $assign()
 
 #### $batch()
+
+#### $watch()
+
+#### $when()
