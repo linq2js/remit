@@ -65,6 +65,40 @@ function App() {
 
 ## Advanced Usages
 
+### Model inheritance
+
+```js
+import { create } from "remos";
+
+const PoweredDevice = create({
+  status: "",
+  start() {
+    this.status = "power-on";
+  },
+});
+
+const Scanner = PoweredDevice.$extend({
+  scan() {
+    console.log("scanning");
+  },
+});
+
+const Printer = PoweredDevice.$extend({
+  print() {
+    console.log("printing");
+  },
+});
+
+const Copier = PoweredDevice.$extend({
+  printer: Printer.$clone(),
+  scanner: Scanner.$clone(),
+  start() {
+    this.printer.start();
+    this.scanner.start();
+  },
+});
+```
+
 ## Addons
 
 1. [remos-immer](https://www.npmjs.com/package/remos-immer)

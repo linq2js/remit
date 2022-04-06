@@ -4,6 +4,8 @@ type Monitor = (type: "read" | "write", value: any) => void;
 
 type Wrapper = (next: Function, model: Model) => Function;
 
+const typeProp = "$$type";
+
 interface ModelApi<TModel extends {} = {}> {
   /**
    * clone to new model
@@ -71,8 +73,7 @@ interface Configs {
 }
 
 interface InternalModelApi<TModel = {}> extends ModelApi<TModel> {
-  $$type: any;
-
+  [typeProp]: any;
   $$monitor(monitor: Monitor): VoidFunction;
 }
 
@@ -159,11 +160,13 @@ function shallowCompare(a: any, b: any) {
   return false;
 }
 
+function isModel(value: any) {
+  return value?.[typeProp] === modelType;
+}
+
 const create: CreateModel = (props) => {
   if (!props) throw new Error("Invalid model props");
-  if ((props as unknown as InternalModelApi).$$type === modelType) {
-    return props;
-  }
+  if (isModel(props)) return props;
 
   let updatingJobs = 0;
   let changeToken = {};
@@ -178,9 +181,24 @@ const create: CreateModel = (props) => {
   const values: any = { ...props };
 
   function assign(props: any) {
+    if (props === model) return;
+
     Object.keys(props).forEach((key) => {
-      if (typeof props[key] === "function" || !(key in model)) return;
-      model[key] = props[key];
+      const value = props[key];
+      if (
+        // internal methods / props
+        key[0] === "$" ||
+        typeof value === "function" ||
+        // not exist key
+        !(key in model)
+      ) {
+        return;
+      }
+      if (isModel(model[key])) {
+        model[key].$assign(value);
+      } else {
+        model[key] = value;
+      }
     });
   }
 
@@ -210,7 +228,7 @@ const create: CreateModel = (props) => {
   }
 
   api = {
-    $$type: undefined,
+    [typeProp]: undefined,
     $$monitor(m) {
       monitor = m;
       return () => {
@@ -305,7 +323,7 @@ const create: CreateModel = (props) => {
 
   model = { ...api };
 
-  Object.defineProperty(model, "$$type", {
+  Object.defineProperty(model, typeProp, {
     enumerable: false,
     get: () => modelType,
   });
@@ -427,6 +445,7 @@ export {
   Model,
   UseModel,
   Wrapper,
+  isModel,
   useModel,
   create,
   configure,
