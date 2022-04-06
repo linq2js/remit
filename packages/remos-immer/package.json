@@ -1,6 +1,6 @@
 {
   "name": "remos-immer",
-  "version": "0.0.0",
+  "version": "0.0.6",
   "description": "An Immer wrapper for Remos",
   "author": "linq2js <linqtojs@gmail.com>",
   "repository": {
@@ -19,8 +19,8 @@
     "dist/tsc"
   ],
   "peerDependencies": {
-    "remos": "^0.0.6",
-    "immer": "^9.0.12"
+    "immer": "^9.0.12",
+    "remos": "^0.0.6"
   },
   "scripts": {
     "prepublishOnly": "yarn test && yarn && yarn build",
