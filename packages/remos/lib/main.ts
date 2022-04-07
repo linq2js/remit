@@ -3,17 +3,30 @@ import * as React from "react";
 type Observer = (type: "read" | "write" | "call", value: any) => void;
 type Wrapper = (next: Function, model: Model) => Function;
 type Injector = <TProps>(api: ModelApi<TProps>, props: TProps) => void;
+type CompareFn<T = any> = (a: T, b: T) => boolean;
 
 const typeProp = "$$type";
+const keyProp = "$key";
+const dataProp = "$data";
 
-interface ModelBase {}
+interface ModelBase {
+  onInit?(): void;
+  onCreate?(): void;
+  onSubscribe?(): void;
+  onUbsubscribe?(): void;
+  [key: string]: any;
+}
+
+type Data<T> = { [key in keyof T]: T[key] extends Function ? never : T[key] };
 
 interface ModelApi<TModel extends ModelBase = {}> {
   readonly $model: Model<TModel>;
+  readonly [keyProp]: any;
+  readonly [dataProp]: Data<TModel>;
   /**
    * clone to new model
    */
-  $clone(): Model<TModel>;
+  $extend(): Model<TModel>;
 
   /**
    * extend current model
@@ -64,7 +77,7 @@ interface ModelApi<TModel extends ModelBase = {}> {
 
   $wait<TResult>(
     selector: (model: TModel) => TResult,
-    compareFn?: (a: TResult, b: TResult) => boolean
+    compareFn?: CompareFn<TResult>
   ): Promise<TResult>;
 
   /**
@@ -88,7 +101,7 @@ interface InternalModelApi<TModel extends ModelBase = {}>
   [typeProp]: any;
 }
 
-type Model<T = {}> = {
+type Model<T extends ModelBase = {}> = {
   [key in keyof T]: T[key] extends (...args: any[]) => any
     ? T[key] extends (...args: infer TArgs) => (model: Model) => infer TResult
       ? (...args: TArgs) => TResult
@@ -96,23 +109,37 @@ type Model<T = {}> = {
     : T[key];
 } & ModelApi<T>;
 
-interface CreateModel {
-  <TModel extends ModelBase>(props: TModel): Model<TModel>;
+type FamilyModel<T extends ModelBase = {}> = Model<T> & {
+  $family(key: any): Model<T>;
+};
+
+interface CreateOptions {
+  key?: any;
+  family?: boolean | CompareFn;
+}
+
+interface Create {
+  <TModel extends ModelBase, TOptions extends CreateOptions>(
+    props: TModel,
+    options?: TOptions
+  ): TOptions extends { family: true | CompareFn }
+    ? FamilyModel<TModel>
+    : Model<TModel>;
 }
 
 interface UseModel {
   <TModel extends ModelBase>(
-    creator: (create: CreateModel) => TModel,
+    creator: (create: Create) => TModel,
     options?: UseModelOptions<TModel>
   ): Model<TModel>;
 
   <TModel extends ModelBase>(
-    creator: (create: CreateModel) => TModel,
+    creator: (create: Create) => TModel,
     autoUpdate: boolean
   ): Model<TModel>;
 
   <TModel extends ModelBase>(
-    creator: (create: CreateModel) => TModel,
+    creator: (create: Create) => TModel,
     updater?: (prev: TModel) => Partial<TModel>
   ): Model<TModel>;
 
@@ -171,6 +198,10 @@ function shallowCompare(a: any, b: any) {
   return false;
 }
 
+function keyCompare(a: any, b: any) {
+  return shallowCompare(a, b);
+}
+
 /**
  * check the value is whether model or not
  * @param value
@@ -185,7 +216,7 @@ function isModel(value: any) {
  * @param props
  * @returns
  */
-const create: CreateModel = (props) => {
+const create: Create = (props, options) => {
   if (!props) throw new Error("Invalid model props");
   if (isModel(props)) return props;
 
@@ -195,6 +226,7 @@ const create: CreateModel = (props) => {
   let initialized = false;
   let api: InternalModelApi;
   let isCreating = true;
+  const family = new Map<any, Model>();
   const observers: Observer[] = [];
   const listeners: Function[] = [];
   const wrappers: Wrapper[] = [];
@@ -204,7 +236,7 @@ const create: CreateModel = (props) => {
   };
 
   // clone prop
-  const values: any = { ...props };
+  const data: any = {};
 
   function emit(...args: Parameters<Observer>) {
     const [type, value] = args;
@@ -233,7 +265,7 @@ const create: CreateModel = (props) => {
     });
   }
 
-  function call(method: Function, args: any[], lazy: boolean) {
+  function call(method: Function, args: any[] = [], lazy: boolean = false) {
     updatingJobs++;
     const token = changeToken;
     try {
@@ -259,15 +291,17 @@ const create: CreateModel = (props) => {
   }
 
   function init() {
-    if (initialized) return;
+    if (initialized || isCreating) return;
     initialized = true;
     model.onInit?.();
   }
 
   api = {
     [typeProp]: undefined,
+    [keyProp]: undefined,
+    [dataProp]: data,
     get $model() {
-      if (isCreating) {
+      if (isCreating && model) {
         throw new Error(
           "Model is not ready. It seems you are trying to access the $model inside injector"
         );
@@ -285,10 +319,8 @@ const create: CreateModel = (props) => {
       wrappers.push(...(Array.isArray(input) ? input : [input]));
       return this;
     },
-    $clone() {
-      return create(props);
-    },
-    $extend(newProps) {
+    $extend(newProps?: any) {
+      if (!newProps) return create(props);
       return create({ ...props, ...newProps });
     },
     $batch(updater, lazy) {
@@ -316,21 +348,18 @@ const create: CreateModel = (props) => {
         const next = selector(model);
         if (!compareFn(prev, next)) {
           prev = next;
-          call(callback, [next], false);
+          call(callback, [next]);
         }
       });
     },
     $reset() {
-      call(
-        () => {
-          assign(props);
-          if (initialized) {
-            model.onInit?.();
-          }
-        },
-        [],
-        false
-      );
+      call(() => {
+        family.clear();
+        assign(props);
+        if (initialized) {
+          model.onInit?.();
+        }
+      });
     },
     $listen(...args: any[]) {
       let listener: Function;
@@ -368,7 +397,7 @@ const create: CreateModel = (props) => {
         listener = args[0];
       }
 
-      model.onConnect?.();
+      model.onSubscribe?.();
       listeners.push(listener);
       let active = true;
       return () => {
@@ -376,13 +405,40 @@ const create: CreateModel = (props) => {
         active = false;
         const index = listeners.indexOf(listener);
         listeners.splice(index, 1);
-        model.onDisconnect?.();
+        model.onUnsubscribe?.();
       };
     },
     $assign(props: any, lazy?: boolean) {
       call(assign, [props], !!lazy);
     },
   };
+
+  if (options?.family) {
+    const compareFn =
+      typeof options.family === "function" ? options.family : keyCompare;
+
+    (api as any).$family = (key: any) => {
+      let member: Model | undefined;
+      if (key && (Array.isArray(key) || typeof key === "object")) {
+        const keyIterator = family.entries();
+        while (true) {
+          const { value, done } = keyIterator.next();
+          if (done) break;
+          if (compareFn(value[0], key)) {
+            member = value[1];
+            break;
+          }
+        }
+      } else {
+        member = family.get(key);
+      }
+      if (!member) {
+        member = create(props, { key });
+        family.set(key, member);
+      }
+      return member;
+    };
+  }
 
   model = { ...api };
 
@@ -392,35 +448,42 @@ const create: CreateModel = (props) => {
       get: () => modelType,
     },
     $model: {
+      enumerable: false,
       get: () => model,
+    },
+    [keyProp]: {
+      enumerable: false,
+      get: () => options?.key,
     },
   });
 
   // injector must run before property bindings
   globalInjectors?.forEach((injector) => injector(api, props));
 
-  Object.keys(values).forEach((key) => {
+  Object.keys(props).forEach((key) => {
     // skip special props
     if (key[0] === "$") {
       return;
     }
     // private prop
     if (key[0] === "_") {
-      model[key] = values[key];
+      model[key] = data[key];
       return;
     }
 
+    const value = props[key];
+
     // method
-    if (typeof values[key] === "function") {
-      let method = values[key];
+    if (typeof value === "function") {
+      let method = value;
 
       wrappers.forEach((wrapper) => {
         method = wrapper(method, model);
       });
 
       model[key] = (...args: any[]) => {
-        emit("call", values[key]);
-        return call(method, args, false);
+        emit("call", value);
+        return call(method, args);
       };
       return;
     }
@@ -431,23 +494,27 @@ const create: CreateModel = (props) => {
       get: () => {
         init();
         emit("read", key);
-        return values[key];
+        return data[key];
       },
       set: (value: any) => {
         init();
         emit("write", { prop: key, value });
-        if (value === values[key]) return;
-        values[key] = value;
+        if (value === data[key]) return;
+        data[key] = value;
         changeToken = {};
         if (updatingJobs) return;
         notifyChange();
       },
     });
+
+    data[key] = value;
   });
 
   isCreating = false;
 
-  model.onCreate?.();
+  if (!options?.family) {
+    model.onCreate?.();
+  }
 
   return model;
 };
@@ -528,8 +595,8 @@ const useModel: UseModel = (...args: any[]): any => {
  * register injectors that will inject to the model at the creating phase
  * @param injectors
  */
-function inject(...injectors: Injector[]) {
-  globalInjectors = injectors;
+function inject(injectors: Injector | Injector[]) {
+  globalInjectors = Array.isArray(injectors) ? injectors : [injectors];
 }
 
 export {

@@ -107,7 +107,7 @@ const Copier = PoweredDevice.$extend({
 
 ### create(props: Object)
 
-Create a new model that is based on specified props
+Create a new model with specified props
 
 ```js
 import { create } from "remos";
@@ -179,7 +179,7 @@ function App() {
 
 ### useModel(models: Model[] \[, options: ModelOptions])
 
-This hook works likely useModel(model) overload but it is for multiple models binding
+This overload works likely useModel(model) overload but it is for multiple models binding
 
 ### inject(...injectors)
 
@@ -199,11 +199,11 @@ counterModel.count++; // model changed
 
 ### Model API
 
-#### $clone()
-
 #### $extend()
 
 #### $reset()
+
+Reset all model props to their initial values
 
 #### $watch()
 
@@ -244,6 +244,8 @@ counterModel.increment(); // increment called
 
 #### $observe(observer), $observe(observers)
 
+### Model family
+
 ### Model Lifecycles
 
 ```js
@@ -254,12 +256,12 @@ const counterModel = create({
   onCreate: () => console.log("create"),
   onInit: () => console.log("init"),
   onChange: () => console.log("change"),
-  onConnect: () => console.log("connect"),
-  onDisconnect: () => console.log("disconnect"),
+  onSubscribe: () => console.log("susbcribe"),
+  onUnsubscribe: () => console.log("unsubscribe"),
 });
 
 // onCreate()
 counterModel.count++; // oninit() => onChange()
-const unsubscribe = counterModel.listen(() => {}); // onConnect()
-unsubscribe(); // onDisconnect()
+const unsubscribe = counterModel.listen(() => {}); // onSubscribe()
+unsubscribe(); // onUnsubscribe()
 ```
