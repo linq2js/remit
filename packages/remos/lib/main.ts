@@ -75,8 +75,8 @@ interface ModelApi<TModel extends ModelBase = {}> {
     compareFn?: (a: TResult, b: TResult) => boolean
   ): VoidFunction;
 
-  $wait<TResult>(
-    selector: (model: TModel) => TResult,
+  $wait<TResult = void>(
+    selector?: (model: TModel) => TResult,
     compareFn?: CompareFn<TResult>
   ): Promise<TResult>;
 
@@ -327,16 +327,22 @@ const create: Create = (props, options) => {
       init();
       call(updater, [model], !!lazy);
     },
-    $wait(selector, compareFn = strictCompare): any {
-      let prev = selector(model);
+    $wait(selector?, compareFn = strictCompare): any {
       let cancel: Function | undefined;
+      let prev: any = selector?.(model);
+
       const promise = new Promise((resolve) => {
         cancel = api.$listen(() => {
-          const next = selector(model);
-          if (!compareFn(prev, next)) {
-            prev = next;
+          if (selector) {
+            const next = selector?.(model);
+            if (!compareFn(prev, next)) {
+              prev = next;
+              cancel?.();
+              resolve(next);
+            }
+          } else {
             cancel?.();
-            resolve(next);
+            resolve(model);
           }
         });
       });

@@ -1,6 +1,43 @@
 import { create } from "./main";
+import { delay } from "./testUtils";
 
-test("data:should not contain any method or $key", () => {
+test("$wait: without selector", async () => {
+  let changed = 0;
+  const model = create({
+    count: 1,
+    increment() {
+      this.count++;
+    },
+  });
+  model.$wait().then(() => changed++);
+  expect(changed).toBe(0);
+  model.increment();
+  await delay();
+  expect(changed).toBe(1);
+  model.increment();
+  await delay();
+  expect(changed).toBe(1);
+});
+
+test("$wait: with selector", async () => {
+  let changed = 0;
+  const model = create({
+    count: 1,
+    increment() {
+      this.count++;
+    },
+  });
+  model.$wait((x) => x.count > 2).then(() => changed++);
+  expect(changed).toBe(0);
+  model.increment();
+  await delay();
+  expect(changed).toBe(0);
+  model.increment();
+  await delay();
+  expect(changed).toBe(1);
+});
+
+test("$data: should not contain any method or $key", () => {
   const model = create({
     $key: 1,
     count: 1,
@@ -11,7 +48,7 @@ test("data:should not contain any method or $key", () => {
   expect(model.$data).toEqual({ count: 1 });
 });
 
-test("lifecycle:create", () => {
+test("onCreate", () => {
   const model = create({
     count: 1,
     onCreate() {
@@ -21,7 +58,7 @@ test("lifecycle:create", () => {
   expect(model.count).toBe(2);
 });
 
-test("lifecycle:init", () => {
+test("onInit", () => {
   let initialized = false;
   const model = create({
     count: 1,
@@ -35,7 +72,7 @@ test("lifecycle:init", () => {
   expect(initialized).toBe(true);
 });
 
-test("lifecycle:subscribe/unsubscribe", () => {
+test("onSubscribe/onUnsubscribe", () => {
   let status = "";
   const model = create({
     count: 1,

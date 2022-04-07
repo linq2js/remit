@@ -213,7 +213,7 @@ Reset all model props to their initial values
 
 #### $watch()
 
-#### $when()
+#### $wait()
 
 #### $wrap(wrapper), $wrap(wrappers)
 
