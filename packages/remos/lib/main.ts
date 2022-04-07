@@ -8,6 +8,7 @@ type CompareFn<T = any> = (a: T, b: T) => boolean;
 const typeProp = "$$type";
 const keyProp = "$key";
 const dataProp = "$data";
+const modelProp = "$model";
 
 interface ModelBase {
   onInit?(): void;
@@ -20,9 +21,9 @@ interface ModelBase {
 type Data<T> = { [key in keyof T]: T[key] extends Function ? never : T[key] };
 
 interface ModelApi<TModel extends ModelBase = {}> {
-  readonly $model: Model<TModel>;
-  readonly [keyProp]: any;
-  readonly [dataProp]: Data<TModel>;
+  [keyProp]: any;
+  [modelProp](): Model<TModel>;
+  [dataProp](): Data<TModel>;
   /**
    * clone to new model
    */
@@ -35,6 +36,20 @@ interface ModelApi<TModel extends ModelBase = {}> {
   $extend<TNewModel extends ModelBase>(
     props: TNewModel
   ): Model<TModel & TNewModel>;
+
+  $extend<TNewModel extends ModelBase, TBaseProp extends string>(
+    props: TNewModel,
+    baseProp: TBaseProp
+  ): Model<
+    TModel &
+      TNewModel & {
+        [key in TBaseProp]: {
+          [key in keyof TModel]: TModel[key] extends Function
+            ? TModel[key]
+            : never;
+        };
+      }
+  >;
 
   /**
    * Reset all props of the model to initial values
@@ -74,6 +89,11 @@ interface ModelApi<TModel extends ModelBase = {}> {
     callback: (result: TResult) => void,
     compareFn?: (a: TResult, b: TResult) => boolean
   ): VoidFunction;
+
+  $call<TArgs extends any[], TResult>(
+    fn: (...args: TArgs) => TResult,
+    ...args: TArgs
+  ): TResult;
 
   $wait<TResult = void>(
     selector?: (model: TModel) => TResult,
@@ -208,7 +228,7 @@ function keyCompare(a: any, b: any) {
  * @returns
  */
 function isModel(value: any) {
-  return value?.[typeProp] === modelType;
+  return value?.[typeProp]?.() === modelType;
 }
 
 /**
@@ -293,20 +313,27 @@ const create: Create = (props, options) => {
   function init() {
     if (initialized || isCreating) return;
     initialized = true;
-    model.onInit?.();
+    if (model.onInit) {
+      call(model.onInit);
+    }
   }
 
   api = {
-    [typeProp]: undefined,
-    [keyProp]: undefined,
-    [dataProp]: data,
-    get $model() {
+    [typeProp]: () => modelType,
+    get [keyProp]() {
+      return options?.key;
+    },
+    [dataProp]: () => data,
+    get [modelProp]() {
       if (isCreating && model) {
         throw new Error(
           "Model is not ready. It seems you are trying to access the $model inside injector"
         );
       }
       return model;
+    },
+    $call(fn, ...args) {
+      return call(fn, args);
     },
     $observe(input) {
       observers.push(...(Array.isArray(input) ? input : [input]));
@@ -319,8 +346,11 @@ const create: Create = (props, options) => {
       wrappers.push(...(Array.isArray(input) ? input : [input]));
       return this;
     },
-    $extend(newProps?: any) {
+    $extend(newProps?: any, baseProp?: string) {
       if (!newProps) return create(props);
+      if (baseProp) {
+        return create({ ...props, [baseProp]: props, ...newProps });
+      }
       return create({ ...props, ...newProps });
     },
     $batch(updater, lazy) {
@@ -362,9 +392,7 @@ const create: Create = (props, options) => {
       call(() => {
         family.clear();
         assign(props);
-        if (initialized) {
-          model.onInit?.();
-        }
+        initialized = false;
       });
     },
     $listen(...args: any[]) {
@@ -402,8 +430,10 @@ const create: Create = (props, options) => {
       } else {
         listener = args[0];
       }
+      if (model.onSubscribe) {
+        call(model.onSubscribe);
+      }
 
-      model.onSubscribe?.();
       listeners.push(listener);
       let active = true;
       return () => {
@@ -411,7 +441,9 @@ const create: Create = (props, options) => {
         active = false;
         const index = listeners.indexOf(listener);
         listeners.splice(index, 1);
-        model.onUnsubscribe?.();
+        if (model.onUnsubscribe) {
+          call(model.onUnsubscribe);
+        }
       };
     },
     $assign(props: any, lazy?: boolean) {
@@ -446,22 +478,12 @@ const create: Create = (props, options) => {
     };
   }
 
-  model = { ...api };
-
-  Object.defineProperties(model, {
-    [typeProp]: {
-      enumerable: false,
-      get: () => modelType,
+  model = {
+    ...api,
+    get key() {
+      return options?.key;
     },
-    $model: {
-      enumerable: false,
-      get: () => model,
-    },
-    [keyProp]: {
-      enumerable: false,
-      get: () => options?.key,
-    },
-  });
+  };
 
   // injector must run before property bindings
   globalInjectors?.forEach((injector) => injector(api, props));
@@ -519,7 +541,9 @@ const create: Create = (props, options) => {
   isCreating = false;
 
   if (!options?.family) {
-    model.onCreate?.();
+    if (model.onCreate) {
+      call(model.onCreate);
+    }
   }
 
   return model;

@@ -199,6 +199,10 @@ counterModel.count++; // model changed
 
 ### Model API
 
+#### $model()
+
+#### $data()
+
 #### $extend()
 
 #### $reset()

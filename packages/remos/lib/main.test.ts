@@ -1,5 +1,9 @@
-import { create } from "./main";
+import { create, inject } from "./main";
 import { delay } from "./testUtils";
+
+beforeEach(() => {
+  inject([]);
+});
 
 test("$wait: without selector", async () => {
   let changed = 0;
@@ -45,7 +49,7 @@ test("$data: should not contain any method or $key", () => {
       this.count++;
     },
   });
-  expect(model.$data).toEqual({ count: 1 });
+  expect(model.$data()).toEqual({ count: 1 });
 });
 
 test("onCreate", () => {
@@ -126,4 +130,10 @@ test("family: key is array type", () => {
   const m1 = root.$family([1]);
   const m2 = root.$family([1]);
   expect(m1).toBe(m2);
+});
+
+test("inject", () => {
+  inject((model) => model.$wrap((method) => method));
+  const root = create({ count: 1 });
+  expect(root.count).toBe(1);
 });
