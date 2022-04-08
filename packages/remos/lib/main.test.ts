@@ -165,3 +165,8 @@ test("inject", () => {
   const root = create({ count: 1 });
   expect(root.count).toBe(1);
 });
+
+test("stringify", () => {
+  const model = create({ count: 1 });
+  expect(JSON.stringify(model)).toBe(JSON.stringify(model.$props));
+});

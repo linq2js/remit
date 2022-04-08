@@ -1,15 +1,15 @@
 import "./App.css";
-import { useModel, create } from "remos";
+import { useModel, create, Model } from "remos";
 
-const counterBase = create({
+const CounterLogic = {
   count: 1,
   increment() {
     this.count++;
   },
-});
+};
 
-const counter1 = counterBase.$extend();
-const counter2 = counterBase.$extend();
+const counter1 = create(CounterLogic);
+const counter2 = create(CounterLogic);
 
 const Buttons = () => (
   <p>
@@ -22,7 +22,7 @@ const ValueOf = ({
   model,
   name,
 }: {
-  model: typeof counterBase;
+  model: Model<typeof CounterLogic>;
   name: string;
 }) => {
   useModel(model);
@@ -35,7 +35,10 @@ const ValueOf = ({
 };
 
 const IsCounter1GreaterThanCounter2 = () => {
-  const value = useModel([counter1, counter2], (c1, c2) => c1.count > c2.count);
+  const value = useModel(
+    { counter1, counter2 },
+    ({ counter1, counter2 }) => counter1.count > counter2.count
+  );
 
   return (
     <p>
