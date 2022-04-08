@@ -4,52 +4,95 @@ type Observer = (type: "read" | "write" | "call", value: any) => void;
 type Wrapper = (next: Function, model: Model) => Function;
 type Injector = <TProps>(api: ModelApi<TProps>, props: TProps) => void;
 type CompareFn<T = any> = (a: T, b: T) => boolean;
+type ExclueMethods<T> = {
+  [key in keyof T]: T[key] extends Function ? never : T[key];
+};
 
 const typeProp = "$$type";
 const keyProp = "$key";
 const dataProp = "$data";
 const modelProp = "$model";
+const propsProp = "$props";
 
 interface ModelBase {
+  /**
+   * this method will called when model has first access
+   */
   onInit?(): void;
+  /**
+   * this method will be called when model is ready
+   */
   onCreate?(): void;
+  /**
+   * this method will be callled when listener is registered
+   */
   onSubscribe?(): void;
+  /**
+   * this method will be callled when listener is unregistered
+   */
   onUbsubscribe?(): void;
   [key: string]: any;
 }
 
 type Data<T> = { [key in keyof T]: T[key] extends Function ? never : T[key] };
 
+type Invoker = <TArgs extends any[], TResult>(
+  fn: (...args: TArgs) => TResult,
+  ...args: TArgs
+) => TResult;
+
+interface BaseOf<TModel extends ModelBase> {
+  /**
+   * get base props
+   */
+  (): TModel;
+  /**
+   * call base method
+   */
+  <
+    TMethod extends keyof TModel,
+    TArgs extends TModel[TMethod] extends (...args: any[]) => any
+      ? Parameters<TModel[TMethod]>
+      : never,
+    TResult extends TModel[TMethod] extends (...args: any[]) => any
+      ? ReturnType<TModel[TMethod]>
+      : never
+  >(
+    name: TMethod,
+    ...args: TArgs
+  ): TResult;
+}
+
 interface ModelApi<TModel extends ModelBase = {}> {
   [keyProp]: any;
   [modelProp](): Model<TModel>;
   [dataProp](): Data<TModel>;
+  [propsProp]: TModel;
+
   /**
    * clone to new model
    */
   $extend(): Model<TModel>;
 
   /**
-   * extend current model
-   * @param props
+   * extend current model using child props builder.
+   * The builder retrieves base utils.
+   * ```js
+   * base(); // return all base model props
+   * base('method', arg1, arg2, ...); // call base method with specified args
+   * ```
+   * @param builder
    */
   $extend<TNewModel extends ModelBase>(
-    props: TNewModel
-  ): Model<TModel & TNewModel>;
+    builder: (base: BaseOf<TModel>) => TNewModel
+  ): Model<TNewModel>;
 
-  $extend<TNewModel extends ModelBase, TBaseProp extends string>(
-    props: TNewModel,
-    baseProp: TBaseProp
-  ): Model<
-    TModel &
-      TNewModel & {
-        [key in TBaseProp]: {
-          [key in keyof TModel]: TModel[key] extends Function
-            ? TModel[key]
-            : never;
-        };
-      }
-  >;
+  /**
+   * extend current model. This overload is usually for Javascript version
+   * or the child model does not contain any prop/method accessing to base model
+   * @param props
+   */
+  $extend<TNewModel extends ModelBase>(props: TNewModel): Model<TNewModel>;
 
   /**
    * Reset all props of the model to initial values
@@ -90,10 +133,7 @@ interface ModelApi<TModel extends ModelBase = {}> {
     compareFn?: (a: TResult, b: TResult) => boolean
   ): VoidFunction;
 
-  $call<TArgs extends any[], TResult>(
-    fn: (...args: TArgs) => TResult,
-    ...args: TArgs
-  ): TResult;
+  $call: Invoker;
 
   $wait<TResult = void>(
     selector?: (model: TModel) => TResult,
@@ -121,13 +161,15 @@ interface InternalModelApi<TModel extends ModelBase = {}>
   [typeProp]: any;
 }
 
-type Model<T extends ModelBase = {}> = {
-  [key in keyof T]: T[key] extends (...args: any[]) => any
-    ? T[key] extends (...args: infer TArgs) => (model: Model) => infer TResult
+type Model<TModel extends ModelBase = {}> = {
+  [key in keyof TModel]: TModel[key] extends (...args: any[]) => any
+    ? TModel[key] extends (
+        ...args: infer TArgs
+      ) => (model: Model) => infer TResult
       ? (...args: TArgs) => TResult
-      : T[key]
-    : T[key];
-} & ModelApi<T>;
+      : TModel[key]
+    : TModel[key];
+} & ModelApi<TModel>;
 
 type FamilyModel<T extends ModelBase = {}> = Model<T> & {
   $family(key: any): Model<T>;
@@ -153,6 +195,9 @@ interface UseModel {
     options?: UseModelOptions<TModel>
   ): Model<TModel>;
 
+  /**
+   * using creator function to update model whenever the component re-rendered
+   */
   <TModel extends ModelBase>(
     creator: (create: Create) => TModel,
     autoUpdate: boolean
@@ -169,6 +214,57 @@ interface UseModel {
   ): void;
 
   (models: Model[], options?: Omit<UseModelOptions<any>, "updater">): void;
+
+  <T, TResult>(
+    model: Model<T>,
+    selector: (model: ExclueMethods<T>) => TResult,
+    compareFn?: CompareFn
+  ): TResult;
+
+  <T1, T2, TResult>(
+    models: [Model<T1>, Model<T2>],
+    selector: (p1: ExclueMethods<T1>, p2: ExclueMethods<T2>) => TResult,
+    compareFn?: CompareFn
+  ): TResult;
+
+  <T1, T2, T3, TResult>(
+    models: [Model<T1>, Model<T2>, Model<T3>],
+    selector: (
+      p1: ExclueMethods<T1>,
+      p2: ExclueMethods<T2>,
+      p3: ExclueMethods<T3>
+    ) => TResult,
+    compareFn?: CompareFn
+  ): TResult;
+
+  <T1, T2, T3, T4, TResult>(
+    models: [Model<T1>, Model<T2>, Model<T3>, Model<T4>],
+    selector: (
+      p1: ExclueMethods<T1>,
+      p2: ExclueMethods<T2>,
+      p3: ExclueMethods<T3>,
+      p4: ExclueMethods<T4>
+    ) => TResult,
+    compareFn?: CompareFn
+  ): TResult;
+
+  <T1, T2, T3, T4, T5, TResult>(
+    models: [Model<T1>, Model<T2>, Model<T3>, Model<T4>, Model<T5>],
+    selector: (
+      p1: ExclueMethods<T1>,
+      p2: ExclueMethods<T2>,
+      p3: ExclueMethods<T3>,
+      p4: ExclueMethods<T4>,
+      p5: ExclueMethods<T5>
+    ) => TResult,
+    compareFn?: CompareFn
+  ): TResult;
+
+  <TResult>(
+    models: Model[],
+    selector: (...args: any[]) => TResult,
+    compareFn?: CompareFn
+  ): TResult;
 }
 
 interface UseModelOptions<TModel extends ModelBase = {}> {
@@ -320,6 +416,7 @@ const create: Create = (props, options) => {
 
   api = {
     [typeProp]: () => modelType,
+    [propsProp]: props,
     get [keyProp]() {
       return options?.key;
     },
@@ -346,10 +443,29 @@ const create: Create = (props, options) => {
       wrappers.push(...(Array.isArray(input) ? input : [input]));
       return this;
     },
-    $extend(newProps?: any, baseProp?: string) {
+    $extend(newProps?: any): any {
       if (!newProps) return create(props);
-      if (baseProp) {
-        return create({ ...props, [baseProp]: props, ...newProps });
+
+      if (typeof newProps === "function") {
+        let childModel: Model | undefined;
+
+        const base = (name: string, ...args: any[]) => {
+          // get base props
+          if (!name) {
+            return props;
+          }
+          if (!childModel) {
+            throw new Error("Cannot call base method inside props builder");
+          }
+
+          const method = props[name];
+          if (typeof method !== "function") {
+            throw new Error(`Invalid base method ${name}`);
+          }
+          return childModel.$call(method, ...args);
+        };
+        childModel = create(newProps(base));
+        return childModel;
       }
       return create({ ...props, ...newProps });
     },
@@ -456,7 +572,7 @@ const create: Create = (props, options) => {
       typeof options.family === "function" ? options.family : keyCompare;
 
     (api as any).$family = (key: any) => {
-      let member: Model | undefined;
+      let member: typeof model | undefined;
       if (key && (Array.isArray(key) || typeof key === "object")) {
         const keyIterator = family.entries();
         while (true) {
@@ -550,23 +666,28 @@ const create: Create = (props, options) => {
 };
 
 const useModel: UseModel = (...args: any[]): any => {
-  // useModel(creator)
-  const isCreatorMode = typeof args[0] === "function";
   const modelRef = React.useRef<Model>();
   const rerender = React.useState<any>()[1];
   const optionsRef = React.useRef<UseModelOptions>({});
+  const selectorRef = React.useRef<Function>();
+  const compareFnRef = React.useRef<Function>();
   const models: Model[] = [];
   const renderingRef = React.useRef(true);
   let creator: Function | undefined;
+  let inputOptions: UseModelOptions | undefined | boolean;
   renderingRef.current = true;
 
-  if (isCreatorMode) {
+  // useModel(creator)
+  if (typeof args[0] === "function") {
     creator = args[0];
     if (!modelRef.current) {
       modelRef.current = create(creator?.(create));
     }
+    inputOptions = args[1];
     models.push(modelRef.current!);
   } else {
+    // useModel(models, selector, compareFn)
+    // useModel(models, options)
     if (Array.isArray(args[0])) {
       args[0]
         .filter((x) => !!x)
@@ -574,9 +695,24 @@ const useModel: UseModel = (...args: any[]): any => {
           if (models.includes(model)) return;
           models.push(model);
         });
+      // useModel(models, selector, compareFn)
+      if (typeof args[1] === "function") {
+        selectorRef.current = args[1];
+        compareFnRef.current = args[2];
+      } else {
+        inputOptions = args[1];
+      }
     } else if (args[0]) {
       modelRef.current = args[0];
       models.push(args[0]);
+      // useModel(model, selector, compareFn)
+      if (typeof args[1] === "function") {
+        selectorRef.current = args[1];
+        compareFnRef.current = args[2];
+      } else {
+        // useModel(model, options)
+        inputOptions = args[1];
+      }
     }
 
     if (!models.length) {
@@ -586,22 +722,33 @@ const useModel: UseModel = (...args: any[]): any => {
 
   optionsRef.current =
     // autoUpdate
-    (typeof args[1] === "boolean"
+    (typeof inputOptions === "boolean"
       ? {
           updater: creator
-            ? args[1]
+            ? inputOptions
               ? () => creator?.(create)
               : undefined
             : undefined,
         }
-      : typeof args[1] === "function"
-      ? { updater: args[1] }
-      : args[1]) ?? {};
+      : typeof inputOptions === "function"
+      ? { updater: inputOptions }
+      : inputOptions) ?? {};
 
   effectHook(() => {
+    let prevValue: any;
     const handleChange = (model: Model) => {
       if (renderingRef.current) return;
       optionsRef.current.onChange?.(model);
+
+      // has selector
+      if (selectorRef.current) {
+        const nextValue = selectorRef.current(...models.map((x) => x.$data()));
+        const compareFn = compareFnRef.current ?? strictCompare;
+        // nothing change
+        if (compareFn(prevValue, nextValue)) return;
+        prevValue = nextValue;
+      }
+
       rerender({});
     };
     const unsubscribes = models.map((model) =>
@@ -618,15 +765,22 @@ const useModel: UseModel = (...args: any[]): any => {
 
   renderingRef.current = false;
 
+  if (selectorRef.current) {
+    return selectorRef.current(...models.map((x) => x.$data()));
+  }
+
   return models[0];
 };
 
 /**
  * register injectors that will inject to the model at the creating phase
  * @param injectors
+ * @returns previously registered injectors
  */
 function inject(injectors: Injector | Injector[]) {
+  const prevInjectors = globalInjectors ?? [];
   globalInjectors = Array.isArray(injectors) ? injectors : [injectors];
+  return prevInjectors;
 }
 
 export {

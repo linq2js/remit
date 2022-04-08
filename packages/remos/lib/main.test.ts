@@ -5,6 +5,34 @@ beforeEach(() => {
   inject([]);
 });
 
+test("$extend: with base accessor", () => {
+  const baseModel = create({
+    count: 1,
+    increment(step: number) {
+      this.count += step;
+    },
+  });
+
+  const childModel = baseModel.$extend((base) => ({
+    ...base(),
+    name: "hung",
+    increment() {
+      this.count++;
+    },
+    baseIncrement() {
+      base("increment", 1);
+      base("increment", 2);
+    },
+  }));
+
+  expect(childModel.count).toBe(1);
+  childModel.increment();
+  expect(childModel.count).toBe(2);
+  expect(childModel.name).toBe("hung");
+  childModel.baseIncrement();
+  expect(childModel.count).toBe(5);
+});
+
 test("$wait: without selector", async () => {
   let changed = 0;
   const model = create({
