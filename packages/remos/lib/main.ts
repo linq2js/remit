@@ -44,6 +44,8 @@ interface ModelProps {
    * this method will be called when model is ready
    */
   onCreate?(): void;
+
+  onChange?(): void;
   /**
    * this method will be callled when listener is registered
    */
@@ -173,7 +175,7 @@ interface ModelApi<TProps extends ModelProps = {}> {
    * @param props
    * @param lazy
    */
-  $assign(props: Partial<TProps>, lazy?: boolean): void;
+  $merge(props: Partial<TProps>, lazy?: boolean): void;
 
   $batch(updater: (model: Model<TProps>) => void, lazy?: boolean): void;
 
@@ -236,7 +238,7 @@ interface UseModel {
 
   <TProps extends ModelProps>(
     creator: (create: Create) => TProps,
-    updater?: (prev: TProps) => Partial<TProps>
+    update?: (prev: TProps) => Partial<TProps>
   ): Model<TProps>;
 
   <TProps>(
@@ -262,11 +264,17 @@ interface UseModel {
     props: TProps,
     options?: CreateOptions
   ): Model<TProps>;
+
+  <TProps extends ModelProps>(
+    props: TProps,
+    update: (prev: TProps) => Partial<TProps>,
+    options?: CreateOptions
+  ): Model<TProps>;
 }
 
 interface UseModelOptions<TProps extends ModelProps = {}> {
   onChange?: (model: TProps) => void;
-  updater?: (prev: TProps) => Partial<TProps>;
+  update?: Partial<TProps> | ((prev: TProps) => Partial<TProps>);
 }
 
 const effectHook = React.useEffect;
@@ -330,7 +338,7 @@ function isModel(value: any) {
  * @returns
  */
 const create: Create = (...args: any[]): any => {
-  let model: any;
+  let model: Model<ModelProps>;
   let options: CreateOptions | undefined;
   let props: ModelProps;
 
@@ -380,7 +388,9 @@ const create: Create = (...args: any[]): any => {
   const listeners: Function[] = [];
   const wrappers: Wrapper[] = [];
   const notifyChange = () => {
-    model?.onChange?.();
+    if (model.onChange) {
+      call(model.onChange);
+    }
     listeners.slice().forEach((x) => x());
   };
 
@@ -407,7 +417,7 @@ const create: Create = (...args: any[]): any => {
         return;
       }
       if (isModel(model[key])) {
-        model[key].$assign(value);
+        model[key].$merge(value);
       } else {
         model[key] = value;
       }
@@ -455,7 +465,7 @@ const create: Create = (...args: any[]): any => {
     },
     [dataProp]: () => data,
     toJSON: () => data,
-    get [modelProp]() {
+    get [modelProp](): any {
       if (isCreating && model) {
         throw new Error(
           "Model is not ready. It seems you are trying to access the $model inside injector"
@@ -578,7 +588,7 @@ const create: Create = (...args: any[]): any => {
         }
       };
     },
-    $assign(props: any, lazy?: boolean) {
+    $merge(props: any, lazy?: boolean) {
       call(assign, [props], !!lazy);
     },
   };
@@ -700,7 +710,7 @@ const useModel: UseModel = (...args: any[]): any => {
   const models: Model[] = [];
   const renderingRef = React.useRef(true);
   let creator: Function | undefined;
-  let inputOptions: UseModelOptions | undefined | boolean;
+  let inputOptions: UseModelOptions | undefined;
   renderingRef.current = true;
 
   // useModel(creator)
@@ -752,16 +762,17 @@ const useModel: UseModel = (...args: any[]): any => {
           models.push(...Object.values(modelMap));
         } else {
           // useModel(props, options)
+          // useModel(props, update, options)
           const props = args[0];
-          if (modelRef.current) {
-            modelRef.current.$assign(props);
-          } else {
+          if (!modelRef.current) {
             modelRef.current = create(props);
           }
           models.push(modelRef.current);
-          inputOptions = {
-            ...args[1],
-          };
+          if (typeof args[1] === "function") {
+            inputOptions = { update: args[1], ...args[2] };
+          } else {
+            inputOptions = args[1];
+          }
         }
       }
     }
@@ -772,17 +783,8 @@ const useModel: UseModel = (...args: any[]): any => {
   }
 
   optionsRef.current =
-    // autoUpdate
-    (typeof inputOptions === "boolean"
-      ? {
-          updater: creator
-            ? inputOptions
-              ? () => creator?.(create)
-              : undefined
-            : undefined,
-        }
-      : typeof inputOptions === "function"
-      ? { updater: inputOptions }
+    (typeof inputOptions === "function"
+      ? { update: inputOptions }
       : inputOptions) ?? {};
 
   effectHook(() => {
@@ -810,8 +812,12 @@ const useModel: UseModel = (...args: any[]): any => {
     };
   }, models);
 
-  if (optionsRef.current.updater) {
-    modelRef.current?.$assign(optionsRef.current.updater(modelRef.current));
+  if (optionsRef.current.update) {
+    modelRef.current?.$merge(
+      typeof optionsRef.current.update === "function"
+        ? optionsRef.current.update(modelRef.current)
+        : optionsRef.current.update
+    );
   }
 
   renderingRef.current = false;

@@ -25,7 +25,7 @@ function withImmer(options?: WithImmerOptions) {
               const changes: any = produce(model, (draft: any) => {
                 result = method.apply(draft, args);
               });
-              model.$assign(changes);
+              model.$merge(changes);
               return result;
             },
             {
@@ -34,17 +34,5 @@ function withImmer(options?: WithImmerOptions) {
           )
     );
 }
-
-// function producable<T = any>(fn: Function) {
-//   return function (this: T, ...args: any[]) {
-//     let result: any;
-//     const changes = produce(this, (draft: any) => {
-//       result = fn(draft, ...args);
-//     });
-//     // assume that 'this' is model
-//     (this as any).$assign?.(changes);
-//     return result;
-//   };
-// }
 
 export { withImmer };

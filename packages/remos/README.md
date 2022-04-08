@@ -29,7 +29,7 @@ yarn add remos
 ```js
 import { useModel } from "remos";
 const App = () => {
-  const model = useModel(() => ({ count: 1 }));
+  const model = useModel({ count: 1 });
   return <h1 onClick={() => model.count++}>{model.count}</h1>;
 };
 ```
