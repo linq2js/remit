@@ -133,10 +133,23 @@ interface ModelApi<TModel extends ModelBase = {}> {
     compareFn?: (a: TResult, b: TResult) => boolean
   ): VoidFunction;
 
+  /**
+   * call the method using model as method context
+   */
   $call: Invoker;
 
-  $wait<TResult = void>(
-    selector?: (model: TModel) => TResult,
+  /**
+   * wait model's next change
+   */
+  $wait(): Promise<void>;
+
+  /**
+   * wait model's next change
+   * @param selector
+   * @param compareFn
+   */
+  $wait<TResult>(
+    selector: (model: TModel) => TResult,
     compareFn?: CompareFn<TResult>
   ): Promise<TResult>;
 
@@ -473,7 +486,7 @@ const create: Create = (props, options) => {
       init();
       call(updater, [model], !!lazy);
     },
-    $wait(selector?, compareFn = strictCompare): any {
+    $wait(selector?: Function, compareFn = strictCompare): any {
       let cancel: Function | undefined;
       let prev: any = selector?.(model);
 

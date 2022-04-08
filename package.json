@@ -19,7 +19,7 @@
     "build-all": "lerna exec --no-private -- yarn build",
     "test-all": "lerna exec --no-private -- yarn test",
     "docs": "npx typedoc --tsconfig ./packages/remos/tsconfig.json --entryPoints ./packages/remos/lib/main.ts --out ./docs",
-    "publish-all": "lerna publish",
+    "publish-all": "lerna publish --conventional-commits",
     "bootstrap": "lerna bootstrap"
   },
   "workspaces": [
