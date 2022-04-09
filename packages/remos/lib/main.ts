@@ -113,7 +113,18 @@ interface Listenable<TProps> {
   $listen(props: (keyof TProps)[], listener: VoidFunction): VoidFunction;
 }
 
+interface WatchOptions<TResult> {
+  mode?: ConcurrentMode;
+  compare?: Comparer<TResult>;
+}
+
 interface Watchable<TProps> {
+  $watch<TResult>(
+    selector: (model: TProps) => TResult,
+    callback: (result: TResult) => void,
+    compareFn: Comparer<TResult>
+  ): VoidFunction;
+
   /**
    * The callback will be called when selected value which is returned from the selector is changed.
    * @param selector
@@ -123,7 +134,7 @@ interface Watchable<TProps> {
   $watch<TResult>(
     selector: (model: TProps) => TResult,
     callback: (result: TResult) => void,
-    compareFn?: Comparer<TResult>
+    options: WatchOptions<TResult>
   ): VoidFunction;
 }
 
@@ -435,15 +446,20 @@ function createWatchable<
   TContext extends TProps & Listenable<TContext> = any
 >(getContext: () => TContext): Watchable<TProps> {
   return {
-    $watch(selector, callback, compareFn) {
+    $watch(selector, callback, options) {
+      if (typeof options === "function" || typeof options === "string") {
+        options = { compare: options };
+      }
+
       const context = getContext();
       let prev = selector(context);
-      const cf = getCompareFunction(compareFn);
+      const cf = getCompareFunction(options?.compare);
+      const wrappedCallback = options.mode ? options.mode(callback) : callback;
       return context.$listen(() => {
         const next = selector(context);
         if (!cf(prev, next)) {
           prev = next;
-          callback(next);
+          wrappedCallback(next);
         }
       });
     },
@@ -598,9 +614,7 @@ const create: Create = (...args: any[]): any => {
   const observers: Observer[] = [];
   const wrappers: Wrapper[] = [];
   const notifyChange = () => {
-    if (model.onChange) {
-      call(model.onChange);
-    }
+    model.onChange?.();
     emitter.emit();
   };
 
@@ -662,9 +676,7 @@ const create: Create = (...args: any[]): any => {
   function init() {
     if (initialized || isCreating) return;
     initialized = true;
-    if (model.onInit) {
-      call(model.onInit);
-    }
+    model.onInit?.();
   }
 
   const modelGetter = () => model;
@@ -703,9 +715,7 @@ const create: Create = (...args: any[]): any => {
     },
 
     $init(): any {
-      if (model.onInit) {
-        call(model.onInit);
-      }
+      init();
       return model;
     },
 
@@ -1252,6 +1262,7 @@ const async: Async = (options?: any): AsyncModel => {
     load(fn: Function) {
       const token = (changeToken = {});
       this.loading = true;
+      this.error = undefined;
       const model = of(this);
       model.onLoad();
       const promise = new Promise((resolve, reject) => {
