@@ -1,21 +1,24 @@
 import * as React from "react";
 
-type Observer = (type: "read" | "write" | "call", value: any) => void;
+type Observer = (
+  type: "read" | "write" | "call" | "remove",
+  value: any
+) => void;
 type Wrapper = (next: Function, model: Model) => Function;
-type Injector = <TProps>(api: ModelApi<TProps>, props: TProps) => void;
-type Comparer<T = any> = (a: T, b: T) => boolean;
-type PropsOnly<T> = {
+type Injector = (api: ModelApi, props: any) => void;
+type Comparer<T = any> = "strict" | "shallow" | ((a: T, b: T) => boolean);
+type ConcurrentMode = (callback: Function) => Function;
+
+type Data<T> = {
   [key in keyof T]: T[key] extends Function ? never : T[key];
 };
-
-type Data<T> = { [key in keyof T]: T[key] extends Function ? never : T[key] };
 
 type Call = <TArgs extends any[], TResult>(
   fn: (...args: TArgs) => TResult,
   ...args: TArgs
 ) => TResult;
 
-type Model<TProps extends ModelProps = {}> = {
+type Model<TProps extends {} = {}> = {
   [key in keyof TProps]: TProps[key] extends (...args: any[]) => any
     ? TProps[key] extends (
         ...args: infer TArgs
@@ -25,39 +28,42 @@ type Model<TProps extends ModelProps = {}> = {
     : TProps[key];
 } & ModelApi<TProps>;
 
-type FamilyModel<T extends ModelProps = {}> = Model<T> & {
-  $family(key: any): Model<T>;
+type MemberModel<T extends {} = {}, TKey = any> = Model<T> & {
+  $key(): TKey;
+  $remove(): void;
 };
 
+type FamilyModel<T extends {} = {}, TKey = any> = Model<T> & {
+  [familyProp](key: TKey): MemberModel<T, TKey>;
+};
+
+interface CacheItem {
+  deps: any[] | undefined;
+  value: any;
+  token: any;
+}
+
+interface AsyncModel<TData, TError> {
+  data: TData;
+  error: TError;
+  loading: boolean;
+  load(loader: () => Promise<TData>): Promise<TData>;
+}
+interface Async {
+  <TData = any, TError = any>(): AsyncModel<TData, TError>;
+  <TData = any, TError = any>(options: { initial: TData }): AsyncModel<
+    TData,
+    TError
+  >;
+}
+
 const typeProp = "$$type";
-const keyProp = "$key";
 const dataProp = "$data";
 const modelProp = "$model";
 const propsProp = "$props";
+const familyProp = "$family";
 
-interface ModelProps {
-  /**
-   * this method will called when model has first access
-   */
-  onInit?(): void;
-  /**
-   * this method will be called when model is ready
-   */
-  onCreate?(): void;
-
-  onChange?(): void;
-  /**
-   * this method will be callled when listener is registered
-   */
-  onSubscribe?(): void;
-  /**
-   * this method will be callled when listener is unregistered
-   */
-  onUbsubscribe?(): void;
-  [key: string]: any;
-}
-
-interface BaseOf<TProps extends ModelProps> {
+interface Base<TProps extends {}> {
   /**
    * get base props
    */
@@ -79,42 +85,7 @@ interface BaseOf<TProps extends ModelProps> {
   ): TResult;
 }
 
-interface ModelApi<TProps extends ModelProps = {}> {
-  [keyProp]: any;
-  [modelProp](): Model<TProps>;
-  [dataProp](): Data<TProps>;
-  [propsProp]: TProps;
-
-  /**
-   * clone to new model
-   */
-  $extend(): Model<TProps>;
-
-  /**
-   * extend current model using child props builder.
-   * The builder retrieves base utils.
-   * ```js
-   * base(); // return all base model props
-   * base('method', arg1, arg2, ...); // call base method with specified args
-   * ```
-   * @param builder
-   */
-  $extend<TNewModel extends ModelProps>(
-    builder: (base: BaseOf<TProps>) => TNewModel
-  ): Model<TNewModel>;
-
-  /**
-   * extend current model. This overload is usually for Javascript version
-   * or the child model does not contain any prop/method accessing to base model
-   * @param props
-   */
-  $extend<TNewModel extends ModelProps>(props: TNewModel): Model<TNewModel>;
-
-  /**
-   * Reset all props of the model to initial values
-   */
-  $reset(): void;
-
+interface Listenable<TProps> {
   /**
    * Register listener to listen model props changed event
    * @param listener
@@ -136,7 +107,9 @@ interface ModelApi<TProps extends ModelProps = {}> {
    * @param listener
    */
   $listen(props: (keyof TProps)[], listener: VoidFunction): VoidFunction;
+}
 
+interface Watchable<TProps> {
   /**
    * The callback will be called when selected value which is returned from the selector is changed.
    * @param selector
@@ -146,8 +119,57 @@ interface ModelApi<TProps extends ModelProps = {}> {
   $watch<TResult>(
     selector: (model: TProps) => TResult,
     callback: (result: TResult) => void,
-    compareFn?: (a: TResult, b: TResult) => boolean
+    compareFn?: Comparer<TResult>
   ): VoidFunction;
+}
+
+interface ModelApi<TProps extends {} = {}>
+  extends Listenable<TProps>,
+    Watchable<TProps>,
+    Slicable<TProps> {
+  readonly [modelProp]: Model<TProps>;
+  readonly [propsProp]: TProps;
+
+  [dataProp](): Data<TProps>;
+  $init(): this;
+  /**
+   * clone to new model
+   */
+  $extend(): Model<TProps>;
+
+  /**
+   * extend current model using child props builder.
+   * The builder retrieves base utils.
+   * ```js
+   * base(); // return all base model props
+   * base('method', arg1, arg2, ...); // call base method with specified args
+   * ```
+   * @param builder
+   */
+  $extend<TNewModel extends {}>(
+    builder: (base: Base<TProps>) => TNewModel
+  ): Model<TNewModel>;
+
+  /**
+   * extend current model. This overload is usually for Javascript version
+   * or the child model does not contain any prop/method accessing to base model
+   * @param props
+   */
+  $extend<TNewModel extends {}>(props: TNewModel): Model<TNewModel>;
+
+  $extend<
+    TResult extends Record<string, any>,
+    TNewProps extends Record<string, any>
+  >(
+    props: TNewProps,
+    selector: (props: TProps) => TResult,
+    mode?: ConcurrentMode
+  ): Model<TResult & TNewProps>;
+
+  /**
+   * Reset all props of the model to initial values
+   */
+  $reset(): void;
 
   /**
    * call the method using model as method context
@@ -170,6 +192,21 @@ interface ModelApi<TProps extends ModelProps = {}> {
   ): Promise<TResult>;
 
   /**
+   * listen change from multiple models and call selector to retrieve an update
+   * @param model
+   * @param selector
+   */
+  $sync<TModel extends {}>(
+    model: TModel,
+    selector: TModel extends Model<infer T>
+      ? (props: T) => Partial<TProps>
+      : (props: {
+          [key in keyof TModel]: TModel[key];
+        }) => Partial<TProps>,
+    mode?: ConcurrentMode
+  ): VoidFunction;
+
+  /**
    * Assign specified props to the model.
    * Change event will be triggered once all props are assigned
    * @param props
@@ -180,99 +217,121 @@ interface ModelApi<TProps extends ModelProps = {}> {
   $batch(updater: (model: Model<TProps>) => void, lazy?: boolean): void;
 
   $observe(observer: Observer): this;
+
   $observe(observers: Observer[]): this;
+
   $wrap(wrapper: Wrapper): this;
+
   $wrap(wrappers: Wrapper[]): this;
+
+  $memo<TResult>(key: string, fn: () => TResult, deps?: any[]): TResult;
+
+  $memo<TResult>(fn: () => TResult, deps?: any[]): TResult;
+
+  $lock(): VoidFunction;
 
   toJSON(): TProps;
 }
 
-interface InternalModelApi<TProps extends ModelProps = {}>
-  extends ModelApi<TProps> {
-  [typeProp]: any;
+interface Slicable<TProps> {
+  $slice<TResult extends Record<string, any>>(
+    selector: (props: TProps) => TResult
+  ): ModelSlice<TResult>;
 }
 
-interface CreateOptions {
-  key?: any;
-  family?: boolean | Comparer;
+type ModelSlice<TProps> = Readonly<TProps> &
+  Listenable<TProps> &
+  Watchable<TProps> &
+  Slicable<TProps>;
+
+interface InternalModelApi<TProps extends {} = {}> extends ModelApi<TProps> {
+  [typeProp]: any;
+  $$initMember(key: any, family: Map<any, Model>): void;
 }
 
 interface Create {
-  <
-    TProps extends ModelProps,
-    TBase extends Record<string, Model>,
-    TOptions extends CreateOptions
-  >(
+  <TProps extends {}>(
+    props: TProps,
+    key: keyof TProps,
+    compareFn?: Comparer<TProps[typeof key]>
+  ): FamilyModel<TProps, TProps[typeof key]>;
+
+  <TProps extends {}, TBase extends Record<string, {}>>(
     base: TBase,
     builder: (base: {
       [key in keyof TBase]: TBase[key] extends Model<infer T>
-        ? BaseOf<T>
-        : never;
-    }) => TProps,
-    options?: TOptions
-  ): TOptions extends { family: true | Comparer }
-    ? FamilyModel<TProps>
-    : Model<TProps>;
+        ? Base<T>
+        : Base<TBase[key]>;
+    }) => TProps
+  ): Model<TProps>;
 
-  <TProps extends ModelProps, TOptions extends CreateOptions>(
-    props: TProps,
-    options?: TOptions
-  ): TOptions extends { family: true | Comparer }
-    ? FamilyModel<TProps>
-    : Model<TProps>;
+  <TProps extends {}, TBase extends Record<string, {}>>(
+    base: TBase,
+    builder: (base: {
+      [key in keyof TBase]: TBase[key] extends Model<infer T>
+        ? Base<T>
+        : Base<TBase[key]>;
+    }) => TProps,
+    key: keyof TProps,
+    compareFn?: Comparer<TProps[typeof key]>
+  ): FamilyModel<TProps, TProps[typeof key]>;
+
+  <TProps extends {}>(props: TProps): Model<TProps>;
 }
 
 interface UseModel {
-  <TProps extends ModelProps>(
+  <TProps extends {}>(
     creator: (create: Create) => TProps,
     options?: UseModelOptions<TProps>
   ): Model<TProps>;
 
-  /**
-   * using creator function to update model whenever the component re-rendered
-   */
-  <TProps extends ModelProps>(
-    creator: (create: Create) => TProps,
-    autoUpdate: boolean
-  ): Model<TProps>;
-
-  <TProps extends ModelProps>(
+  <TProps extends {}>(
     creator: (create: Create) => TProps,
     update?: (prev: TProps) => Partial<TProps>
   ): Model<TProps>;
 
-  <TProps>(
-    model: Model<TProps>,
-    options?: Omit<UseModelOptions<TProps>, "updater">
+  <T extends Listenable<TProps>, TProps>(
+    listenable: T,
+    options?: Omit<UseModelOptions<TProps>, "update">
+  ): T;
+
+  (
+    listenable: Listenable<any>[],
+    options?: Omit<UseModelOptions<any>, "update">
   ): void;
 
-  (models: Model[], options?: Omit<UseModelOptions<any>, "updater">): void;
-
   <T, TResult>(
-    model: T,
-    selector: T extends Model<infer TProps>
-      ? (props: PropsOnly<TProps>) => TResult
+    listenable: T,
+    selector: T extends Listenable<any>
+      ? (props: T) => TResult
       : T extends Record<string, any>
       ? (allProps: {
-          [key in keyof T]: T[key] extends Model<infer TProps> ? TProps : never;
+          [key in keyof T]: T[key];
         }) => TResult
       : never,
     compareFn?: Comparer
   ): TResult;
 
-  <TProps extends ModelProps>(
-    props: TProps,
-    options?: CreateOptions
-  ): Model<TProps>;
+  <TProps extends {}>(props: TProps): Model<TProps>;
 
-  <TProps extends ModelProps>(
+  <TProps extends {}>(
     props: TProps,
-    update: (prev: TProps) => Partial<TProps>,
-    options?: CreateOptions
+    update: (prev: TProps) => Partial<TProps>
   ): Model<TProps>;
 }
 
-interface UseModelOptions<TProps extends ModelProps = {}> {
+interface Emitter {
+  // add handler
+  add(handler: Function): VoidFunction;
+  // emit event
+  emit(event?: any): void;
+  // loop through all handlers
+  each(callback: (handler: Function) => void): void;
+  // clear all handlers
+  clear(): void;
+}
+
+interface UseModelOptions<TProps extends {} = {}> {
   onChange?: (model: TProps) => void;
   update?: Partial<TProps> | ((prev: TProps) => Partial<TProps>);
 }
@@ -319,6 +378,15 @@ function shallowCompare(a: any, b: any) {
   return false;
 }
 
+function getCompareFunction<T = any>(
+  compareFn?: Comparer<T>,
+  defaultCompareFn = strictCompare
+) {
+  if (typeof compareFn === "function") return compareFn;
+  if (compareFn === "shallow") return shallowCompare;
+  return defaultCompareFn;
+}
+
 function keyCompare(a: any, b: any) {
   return shallowCompare(a, b);
 }
@@ -328,8 +396,138 @@ function keyCompare(a: any, b: any) {
  * @param value
  * @returns
  */
-function isModel(value: any) {
+function isModel(value: any): value is Model {
   return value?.[typeProp]?.() === modelType;
+}
+
+function createEmitter(): Emitter {
+  const handlers: Function[] = [];
+  return {
+    each(callback) {
+      handlers.forEach(callback);
+    },
+    add(handler) {
+      handlers.push(handler);
+      let active = true;
+      return () => {
+        if (!active) return;
+        const index = handlers.indexOf(handler);
+        if (index !== -1) handlers.splice(index, 1);
+      };
+    },
+    emit(payload) {
+      for (const handler of handlers.slice(0)) {
+        handler(payload);
+      }
+    },
+    clear() {
+      handlers.length = 0;
+    },
+  };
+}
+
+function createWatchable<
+  TProps,
+  TContext extends TProps & Listenable<TContext> = any
+>(getContext: () => TContext): Watchable<TProps> {
+  return {
+    $watch(selector, callback, compareFn) {
+      const context = getContext();
+      let prev = selector(context);
+      const cf = getCompareFunction(compareFn);
+      return context.$listen(() => {
+        const next = selector(context);
+        if (!cf(prev, next)) {
+          prev = next;
+          callback(next);
+        }
+      });
+    },
+  };
+}
+
+function createListenable<TContext = any>(
+  getContext: () => TContext,
+  emitter: Emitter,
+  init?: VoidFunction
+): Listenable<TContext> {
+  return {
+    $listen(...args: any[]) {
+      let listener: Function;
+      const context: any = getContext();
+
+      init?.();
+
+      if (typeof args[0] !== "function") {
+        if (Array.isArray(args[0])) {
+          const prev: Record<string, any> = {};
+          const props = args[0];
+          const originListener = args[1];
+
+          const updatePrevValues = () =>
+            props.forEach((prop) => (prev[prop] = context[prop]));
+
+          updatePrevValues();
+
+          listener = () => {
+            if (props.some((prop) => prev[prop] !== context[prop])) {
+              updatePrevValues();
+              originListener();
+            }
+          };
+        } else {
+          const prop = args[0];
+          const originListener = args[1];
+          let prev = context[prop];
+          listener = () => {
+            if (context[prop] === prev) return;
+            prev = context[prop];
+            originListener();
+          };
+        }
+      } else {
+        listener = args[0];
+      }
+
+      return emitter.add(listener);
+    },
+  };
+}
+
+function createSlicable<TProps>(
+  getContext: () => TProps & Watchable<TProps>
+): Slicable<TProps> {
+  return {
+    $slice(selector) {
+      return createSlice(getContext, selector);
+    },
+  };
+}
+
+function createSlice<TProps, TResult>(
+  getContext: () => TProps & Watchable<TProps>,
+  selector: (props: TProps) => TResult
+): ModelSlice<TResult> {
+  const emitter = createEmitter();
+  let slice: TProps & Listenable<TProps> & Watchable<TProps>;
+  const sliceGetter = () => slice;
+  const context = getContext();
+  slice = {
+    ...selector(context),
+    ...(undefined as unknown as TProps),
+    ...createListenable(sliceGetter, emitter),
+    ...createWatchable(sliceGetter),
+    ...createSlicable(sliceGetter),
+  };
+  context.$watch(
+    ((result: any) => selector(result)) as any,
+    (result) => {
+      Object.assign(slice, result);
+      emitter.emit();
+    },
+    "shallow"
+  );
+  return slice as any;
 }
 
 /**
@@ -338,9 +536,10 @@ function isModel(value: any) {
  * @returns
  */
 const create: Create = (...args: any[]): any => {
-  let model: Model<ModelProps>;
-  let options: CreateOptions | undefined;
-  let props: ModelProps;
+  let model: Model<any>;
+  let familyKeyProp: string | undefined;
+  let familyKeyCompare: Comparer | undefined;
+  let props: any;
 
   if (isModel(args[0])) return args[0];
   // builder
@@ -348,18 +547,20 @@ const create: Create = (...args: any[]): any => {
     const bases: Record<string, Function> = {};
     const builder = args[1] as Function;
     Object.entries(args[0] as Record<string, Model<any>>).forEach(
-      ([key, { $props }]) => {
+      ([key, base]) => {
+        const props: any = isModel(base) ? base.$props : base;
+
         bases[key] = (name: string, ...args: any[]) => {
           // get base props
           if (!name) {
-            return $props;
+            return props;
           }
 
           if (!model) {
             throw new Error("Cannot call base method inside props builder");
           }
 
-          const method = $props[name];
+          const method = props[name];
           if (typeof method !== "function") {
             throw new Error(`Invalid base method ${name}`);
           }
@@ -369,10 +570,12 @@ const create: Create = (...args: any[]): any => {
       }
     );
     props = builder(bases);
-    options = args[2];
+    familyKeyProp = args[2];
+    familyKeyCompare = args[3];
   } else {
     props = args[0];
-    options = args[1];
+    familyKeyProp = args[1];
+    familyKeyCompare = args[2];
   }
 
   if (!props) throw new Error("Invalid model props");
@@ -383,15 +586,18 @@ const create: Create = (...args: any[]): any => {
   let initialized = false;
   let api: InternalModelApi;
   let isCreating = true;
+  let invokingMethodName: string | undefined;
+  let lockers = 0;
+  const emitter = createEmitter();
+  const cache = new Map<string, CacheItem>();
   const family = new Map<any, Model>();
   const observers: Observer[] = [];
-  const listeners: Function[] = [];
   const wrappers: Wrapper[] = [];
   const notifyChange = () => {
     if (model.onChange) {
       call(model.onChange);
     }
-    listeners.slice().forEach((x) => x());
+    emitter.emit();
   };
 
   // clone prop
@@ -457,14 +663,32 @@ const create: Create = (...args: any[]): any => {
     }
   }
 
+  const modelGetter = () => model;
+
   api = {
     [typeProp]: () => modelType,
     [propsProp]: props,
-    get [keyProp]() {
-      return options?.key;
-    },
     [dataProp]: () => data,
-    toJSON: () => data,
+    ...createListenable(modelGetter, emitter, init),
+    ...createWatchable(modelGetter),
+    ...createSlicable(modelGetter),
+    $$initMember(key: any, family: Map<any, Model>) {
+      let removed = false;
+      Object.assign(model as MemberModel, {
+        $all: () =>
+          Array.from(family.values()).map((x) => ({
+            key: (x as MemberModel).$key(),
+            data: x.$data(),
+          })),
+        $key: () => key,
+        $remove: () => {
+          if (removed) return;
+          removed = true;
+          family.delete(key);
+          emit("remove", undefined);
+        },
+      });
+    },
     get [modelProp](): any {
       if (isCreating && model) {
         throw new Error(
@@ -472,6 +696,58 @@ const create: Create = (...args: any[]): any => {
         );
       }
       return model;
+    },
+
+    $init(): any {
+      if (model.onInit) {
+        call(model.onInit);
+      }
+      return model;
+    },
+
+    toJSON: () => data,
+
+    $lock() {
+      let active = true;
+      const token = changeToken;
+      lockers++;
+      return () => {
+        if (!active) return;
+        lockers--;
+        if (!lockers) {
+          if (token !== changeToken) {
+            notifyChange();
+          }
+        }
+      };
+    },
+    $sync(models, selector, mode) {
+      if (isModel(models)) {
+        const model = models as unknown as Model;
+        return model.$listen(() => {
+          const update = selector(model as any);
+          assign(update);
+        });
+      }
+      const entries: any[] = Object.entries(models);
+      const handleChange = () => {
+        const update = selector(models);
+        assign(update);
+      };
+
+      const wrappedHandler = mode ? mode(handleChange) : handleChange;
+
+      const unsubscribes: VoidFunction[] = entries.map(([, model]) =>
+        model.$listen(wrappedHandler)
+      );
+
+      // sync immediately
+      handleChange();
+      return () => {
+        while (unsubscribes.length) {
+          unsubscribes.pop()?.();
+        }
+      };
     },
     $call(fn, ...args) {
       return call(fn, args);
@@ -487,12 +763,28 @@ const create: Create = (...args: any[]): any => {
       wrappers.push(...(Array.isArray(input) ? input : [input]));
       return this;
     },
-    $extend(newProps?: any): any {
-      if (!newProps) return create(props);
-
-      if (typeof newProps === "function") {
-        return create({ base: model }, (bases) => newProps(bases.base));
+    $extend(...args: any[]): any {
+      if (!args.length) {
+        return create(props);
       }
+
+      // extend with sync
+      if (typeof args[1] === "function") {
+        const selector = args[1];
+        const mode: ConcurrentMode = args[2];
+        const props = args[0];
+        const child = create({ ...selector(model), ...props });
+        child.$sync(model, selector as any, mode);
+        return child;
+      }
+
+      // props builder
+      if (typeof args[0] === "function") {
+        const builder: Function = args[0];
+        return create({ base: model }, (bases) => builder(bases.base));
+      }
+
+      const newProps = args[0];
       return create({ ...props, ...newProps });
     },
     $batch(updater, lazy) {
@@ -520,128 +812,93 @@ const create: Create = (...args: any[]): any => {
       });
       return Object.assign(promise, { cancel: () => cancel?.() });
     },
-    $watch(selector, callback, compareFn = strictCompare) {
-      let prev = selector(model);
-      return api.$listen(() => {
-        const next = selector(model);
-        if (!compareFn(prev, next)) {
-          prev = next;
-          call(callback, [next]);
-        }
-      });
-    },
     $reset() {
       call(() => {
         family.clear();
+        cache.clear();
+        emitter.clear();
         assign(props);
         initialized = false;
       });
     },
-    $listen(...args: any[]) {
-      let listener: Function;
-
-      init();
-
-      if (typeof args[0] !== "function") {
-        if (Array.isArray(args[0])) {
-          const prev: Record<string, any> = {};
-          const props = args[0];
-          const originListener = args[1];
-
-          const updatePrevValues = () =>
-            props.forEach((prop) => (prev[prop] = model[prop]));
-
-          updatePrevValues();
-
-          listener = () => {
-            if (props.some((prop) => prev[prop] !== model[prop])) {
-              updatePrevValues();
-              originListener();
-            }
-          };
-        } else {
-          const prop = args[0];
-          const originListener = args[1];
-          let prev = model[prop];
-          listener = () => {
-            if (model[prop] === prev) return;
-            prev = model[prop];
-            originListener();
-          };
-        }
-      } else {
-        listener = args[0];
-      }
-      if (model.onSubscribe) {
-        call(model.onSubscribe);
-      }
-
-      listeners.push(listener);
-      let active = true;
-      return () => {
-        if (!active) return;
-        active = false;
-        const index = listeners.indexOf(listener);
-        listeners.splice(index, 1);
-        if (model.onUnsubscribe) {
-          call(model.onUnsubscribe);
-        }
-      };
-    },
     $merge(props: any, lazy?: boolean) {
       call(assign, [props], !!lazy);
     },
+    $memo(...args: any[]) {
+      let key = invokingMethodName;
+      if (!key) {
+        throw new Error("$memo can be called inside model method");
+      }
+      let fn: Function;
+      let deps: any[] | undefined;
+      if (typeof args[0] === "function") {
+        fn = args[0];
+        deps = args[1];
+      } else {
+        key += ":" + args[0];
+        fn = args[1];
+        deps = args[2];
+      }
+      let memo = cache.get(key);
+
+      // changed or not initialized
+      if (
+        !memo ||
+        !shallowCompare(memo.deps, deps) ||
+        // no dep and token is expired
+        (!deps && memo.token !== changeToken)
+      ) {
+        memo = { deps, value: fn(...(deps ?? [])), token: changeToken };
+        cache.set(key, memo);
+      }
+      return memo.value;
+    },
   };
 
-  if (options?.family) {
-    const compareFn =
-      typeof options.family === "function" ? options.family : keyCompare;
-
-    (api as any).$family = (key: any) => {
-      let member: typeof model | undefined;
+  if (familyKeyProp) {
+    const compareFn = getCompareFunction(familyKeyCompare, keyCompare);
+    const findMember = (key: any): [any, Model | undefined] => {
       if (key && (Array.isArray(key) || typeof key === "object")) {
         const keyIterator = family.entries();
         while (true) {
           const { value, done } = keyIterator.next();
           if (done) break;
           if (compareFn(value[0], key)) {
-            member = value[1];
-            break;
+            return value;
           }
         }
+        return [, undefined];
       } else {
-        member = family.get(key);
+        return [key, family.get(key)];
       }
-      if (!member) {
-        member = create(props, { key });
-        family.set(key, member);
-      }
-      return member;
     };
+
+    Object.assign(api, {
+      [familyProp]: (key: any) => {
+        let [mapKey = key, member] = findMember(key);
+        if (!member) {
+          member = create({ ...props, [familyKeyProp as string]: key });
+          (member as InternalModelApi).$$initMember(mapKey, family);
+          family.set(mapKey, member);
+        }
+        return member;
+      },
+    });
   }
 
-  model = {
-    ...api,
-    get key() {
-      return options?.key;
-    },
-  };
+  model = { ...api };
 
+  const initialProps: any = { ...props };
   // injector must run before property bindings
-  globalInjectors?.forEach((injector) => injector(api, props));
+  globalInjectors?.forEach((injector) => injector(api, initialProps));
 
-  Object.keys(props).forEach((key) => {
+  Object.keys(initialProps).forEach((key) => {
+    const value = initialProps[key];
+
     // skip special props
     if (key[0] === "$") {
       return;
     }
-    // private prop
-    if (key[0] === "_") {
-      model[key] = data[key];
-      return;
-    }
-
-    const value = props[key];
 
     // method
     if (typeof value === "function") {
@@ -652,9 +909,30 @@ const create: Create = (...args: any[]): any => {
       });
 
       model[key] = (...args: any[]) => {
-        emit("call", value);
-        return call(method, args);
+        emit("call", method);
+        const prevInvokingMethodName = invokingMethodName;
+        invokingMethodName = key;
+        try {
+          return call(method, args);
+        } finally {
+          invokingMethodName = prevInvokingMethodName;
+        }
       };
+      return;
+    }
+
+    // private prop
+    if (
+      key[0] === "_" ||
+      key[0] === "#" ||
+      key[0] === "@" ||
+      key[0] === "!" ||
+      key[0] === "~" ||
+      key[0] === "&" ||
+      key[0] === "*" ||
+      key[0] === "%"
+    ) {
+      model[key] = value;
       return;
     }
 
@@ -677,7 +955,7 @@ const create: Create = (...args: any[]): any => {
         },
         set: (value: any) => {
           init();
-          emit("write", { prop: key, value });
+          emit("write", key);
           if (value === data[key]) return;
           data[key] = value;
           changeToken = {};
@@ -692,12 +970,6 @@ const create: Create = (...args: any[]): any => {
 
   isCreating = false;
 
-  if (!options?.family) {
-    if (model.onCreate) {
-      call(model.onCreate);
-    }
-  }
-
   return model;
 };
 
@@ -706,7 +978,7 @@ const useModel: UseModel = (...args: any[]): any => {
   const rerender = React.useState<any>()[1];
   const optionsRef = React.useRef<UseModelOptions>({});
   const selectorRef = React.useRef<Function>();
-  const compareFnRef = React.useRef<Function>();
+  const compareFnRef = React.useRef<Comparer>();
   const models: Model[] = [];
   const renderingRef = React.useRef(true);
   let creator: Function | undefined;
@@ -739,7 +1011,7 @@ const useModel: UseModel = (...args: any[]): any => {
         // useModel(model, selector, compareFn)
         if (typeof args[1] === "function") {
           const selector: Function = args[1];
-          selectorRef.current = () => selector(model.$data());
+          selectorRef.current = () => selector(model);
           compareFnRef.current = args[2];
         } else {
           // useModel(model, options)
@@ -752,11 +1024,7 @@ const useModel: UseModel = (...args: any[]): any => {
           const modelMap: Record<string, Model> = args[0];
           const selector: Function = args[1];
           selectorRef.current = () => {
-            const allProps: Record<string, any> = {};
-            Object.keys(modelMap).forEach((key) => {
-              allProps[key] = modelMap[key].$data();
-            });
-            return selector(allProps);
+            return selector(modelMap);
           };
           compareFnRef.current = args[2];
           models.push(...Object.values(modelMap));
@@ -795,8 +1063,8 @@ const useModel: UseModel = (...args: any[]): any => {
 
       // has selector
       if (selectorRef.current) {
-        const nextValue = selectorRef.current(...models.map((x) => x.$data()));
-        const compareFn = compareFnRef.current ?? strictCompare;
+        const nextValue = selectorRef.current(...models);
+        const compareFn = getCompareFunction(compareFnRef.current);
         // nothing change
         if (compareFn(prevValue, nextValue)) return;
         prevValue = nextValue;
@@ -823,11 +1091,19 @@ const useModel: UseModel = (...args: any[]): any => {
   renderingRef.current = false;
 
   if (selectorRef.current) {
-    return selectorRef.current(...models.map((x) => x.$data()));
+    return selectorRef.current(...models);
   }
 
   return models[0];
 };
+
+function as<T>(value: T) {
+  return value;
+}
+
+function of<TProps>(props: TProps): Model<TProps> {
+  return props as any as Model<TProps>;
+}
 
 /**
  * register injectors that will inject to the model at the creating phase
@@ -840,19 +1116,157 @@ function inject(injectors: Injector | Injector[]) {
   return prevInjectors;
 }
 
+function sequential(afterDone: boolean = false): ConcurrentMode {
+  let lastPromise: Promise<any> | undefined;
+  const resolved = Promise.resolve();
+
+  return (f) =>
+    (...args: any[]) => {
+      if (lastPromise) {
+        if (afterDone) {
+          return (lastPromise = lastPromise.finally(() => f(...args)));
+        }
+        return (lastPromise = lastPromise.then(() => f(...args)));
+      }
+      const result = f(...args);
+      if (typeof result?.then === "function") {
+        return (lastPromise = result);
+      }
+      return resolved;
+    };
+}
+
+function droppable(): ConcurrentMode {
+  let calling = false;
+  return (f) =>
+    (...args: any[]) => {
+      if (calling) return;
+      calling = true;
+      let isAsync = false;
+      try {
+        const result = f(...args);
+        if (typeof result?.then === "function") {
+          isAsync = true;
+          return result.finally(() => {
+            calling = false;
+          });
+        }
+      } finally {
+        if (!isAsync) {
+          calling = false;
+        }
+      }
+    };
+}
+
+function debounce(ms: number = 0): ConcurrentMode {
+  let timer: any;
+  return (f) =>
+    (...args: any[]) => {
+      clearTimeout(timer);
+      return new Promise((resolve, reject) => {
+        timer = setTimeout(() => {
+          try {
+            resolve(f(...args));
+          } catch (e) {
+            reject(e);
+          }
+        }, ms);
+      });
+    };
+}
+
+function once(): ConcurrentMode {
+  let called = false;
+  let lastResult: any;
+  return (f) =>
+    (...args: any[]) => {
+      if (called) return lastResult;
+      called = true;
+      return (lastResult = f(...args));
+    };
+}
+
+function throttle(ms: number): ConcurrentMode {
+  let lastTime: number;
+  let lastResult: any;
+  return (f) =>
+    (...args: any[]) => {
+      const now = Date.now();
+      if (!lastTime || lastTime + ms < now) {
+        lastTime = now;
+        lastResult = f(...args);
+      }
+      return lastResult;
+    };
+}
+
+const async: Async = (options?: any): any => {
+  let changeToken = {};
+  return {
+    data: options?.initial,
+    loading: false,
+    error: undefined,
+    onLoad() {},
+    onSuccess() {},
+    onError() {},
+    onDone() {},
+    load(fn: Function) {
+      const token = (changeToken = {});
+      this.loading = true;
+      const model = of(this);
+      model.onLoad();
+      return new Promise((resolve, reject) => {
+        fn().then(
+          (data: any) => {
+            if (token !== changeToken) return;
+            model.$merge({ loading: false, data });
+            model.onSuccess();
+            model.onDone();
+            resolve(data);
+          },
+          (error: any) => {
+            if (token !== changeToken) return;
+            model.$merge({ loading: false, error });
+            model.onError();
+            model.onDone();
+            reject(error);
+          }
+        );
+      });
+    },
+  };
+};
+
 export {
   Model,
   ModelApi,
   UseModel,
   Wrapper,
-  CreateOptions,
+  ModelSlice,
+  FamilyModel,
+  MemberModel,
   Create,
   UseModelOptions,
-  ModelProps,
+  Injector,
+  Comparer,
+  Observer,
+  ConcurrentMode,
+  AsyncModel,
+  Emitter,
+  as,
+  of,
   isModel,
   useModel,
+  async,
   create,
   inject,
   shallowCompare,
   strictCompare,
+  createEmitter,
+  debounce,
+  throttle,
+  once,
+  droppable,
+  sequential,
 };

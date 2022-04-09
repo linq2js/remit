@@ -1,5 +1,5 @@
-import produce from "immer";
 import { Model, ModelApi } from "remos";
+import produce from "immer";
 
 interface WithImmerOptions {
   ignore?: string | RegExp | ((method: Function, model: Model) => boolean);

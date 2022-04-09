@@ -1,0 +1,14 @@
+0 silly argv {
+0 silly argv   _: [ 'add' ],
+0 silly argv   dev: true,
+0 silly argv   D: true,
+0 silly argv   scope: 'counter-app',
+0 silly argv   globs: [],
+0 silly argv   lernaVersion: '4.0.0',
+0 silly argv   '$0': 'lerna',
+0 silly argv   pkg: '@types/remotedev'
+0 silly argv }
+1 notice cli v4.0.0
+2 verbose rootPath /Users/hung.nguyen/Desktop/Projects/remit
+3 error HttpErrorGeneral: 404 Not Found - GET https://registry.npmjs.org/@types%2fremotedev - Not found
+3 error     at /Users/hung.nguyen/Desktop/Projects/remit/node_modules/npm-registry-fetch/check-response.js:95:15

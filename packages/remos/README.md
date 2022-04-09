@@ -18,13 +18,19 @@ yarn add remos
 
 ## Features
 
-1. Simple APIs
-2. No provider required
-3. No boilerplate
+1. [x] Simple setup
+2. [x] No provider required
+3. [x] No boilerplate
+4. [x] Model inheritance supported
+5. [x] Nested model supported
+6. [x] Model injection supported
+7. [x] Fully Typescript supoorted
+8. [x] Immer supported
+9. [x] Memoized data supported
+10. [x] Model family supported
+11. [ ] Redux Devtools supported
 
-## Basic Usages
-
-### Counter App (5 lines of code only)
+## Counter App
 
 ```js
 import { useModel } from "remos";
@@ -34,69 +40,100 @@ const App = () => {
 };
 ```
 
-### Sharing model between multiple components
+## Recipes
 
-```js
-import { useModel } from "remos";
-
-function Collapsible({ model, children }) {
-  // bind model to the component
-  useModel(model);
-  // show/hide children if open prop changed
-  return model.open ? children : null;
-}
-
-function App() {
-  // create model for child component
-  const $collapsible = useModel(() => ({ open: false }));
-  return (
-    <>
-      {/* the parent component can access or update model which is shared with child components */}
-      <button onClick={() => ($collapsible.open = !collapsible.open)}>
-        Toggle collapsible
-      </button>
-      <Collapsible model={$collapsible}>
-        This is collapsible content
-      </Collapsible>
-    </>
-  );
-}
-```
-
-## Advanced Usages
-
-### Model inheritance
+### Creating simple model
 
 ```js
 import { create } from "remos";
+const counter = create({ count: 1 });
+counter.count++; // update count prop
+```
 
-const PoweredDevice = create({
-  status: "",
-  start() {
-    this.status = "power-on";
-  },
-});
+### Connecting model to React component
 
-const Scanner = PoweredDevice.$extend({
-  scan() {
-    console.log("scanning");
-  },
-});
+```js
+import { create, useModel } from "remos";
+const counter = create({ count: 1 });
 
-const Printer = PoweredDevice.$extend({
-  print() {
-    console.log("printing");
-  },
-});
+const App = () => {
+  useModel(counter);
+  return <h1>{counter.count}</h1>;
+};
+```
 
-const Copier = PoweredDevice.$extend({
-  printer: Printer.$clone(),
-  scanner: Scanner.$clone(),
-  start() {
-    this.printer.start();
-    this.scanner.start();
-  },
-});
+### Selecting single model prop
+
+It detects changes with strict-equality (old === new) by default, this is efficient for atomic state picks.
+
+```js
+import { create, useModel } from "remos";
+const counter = create({ count: 1 });
+const App = () => {
+  const count = useModel(counter, (props) => props.count);
+  return <h1>{count}</h1>;
+};
+```
+
+### Selecing multiple model props
+
+For more control over re-rendering, you may provide an alternative equality function on the thrid argument.
+
+```js
+import { create, useModel } from "remos";
+const user = create({ firstName: "", lastName: "", age: 50 });
+const App = () => {
+  const result = useModel(
+    user,
+    (props) => (
+      {
+        firstName: props.firstName,
+        lastName: props.lastName,
+      },
+      // use shallow compare or pass custom equality function here
+      "shallow"
+    )
+  );
+
+  return (
+    <h1>
+      {result.firstName} {result.lastName}
+    </h1>
+  );
+};
+```
+
+### Handling multiple model updates
+
+```js
+const App = () => {
+  // the component will be re-rendered whenever model1, model2, model3 are updated
+  useModel([model1, model2, model3]);
+  return <></>;
+};
+```
+
+### Selecting props from multiple models
+
+```js
+const author = create({ name: "Bill" });
+const article = create({ title: "React basis" });
+const App = () => {
+  const result = useModel(
+    { author, article },
+    (props) =>
+      `The article ${props.article.title} is written by ${props.author.name}`
+  );
+  const { authorName, articleTitle } = useModel(
+    { author, article },
+    (props) => ({
+      authorName: props.author.name,
+      articleTitle: props.article.title,
+    }),
+    "shallow" // using shallow compare if the selector returns complex object
+  );
+  return <div>{result}</div>;
+};
 ```
 
 ## Addons
