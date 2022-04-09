@@ -52,6 +52,7 @@ interface AsyncModel<TData = any, TError = any> {
   onSuccess(): void;
   onError(): void;
   onDone(): void;
+  cancel(): void;
 }
 interface Async {
   <TData = any, TError = any>(): AsyncModel<TData, TError>;
@@ -993,6 +994,7 @@ const useModel: UseModel = (...args: any[]): any => {
   const optionsRef = React.useRef<UseModelOptions>({});
   const selectorRef = React.useRef<Function>();
   const compareFnRef = React.useRef<Comparer>();
+  const errorRef = React.useRef<any>();
   const models: Model[] = [];
   const renderingRef = React.useRef(true);
   let creator: Function | undefined;
@@ -1072,16 +1074,22 @@ const useModel: UseModel = (...args: any[]): any => {
   effectHook(() => {
     let prevValue: any;
     const handleChange = (model: Model) => {
-      if (renderingRef.current) return;
-      optionsRef.current.onChange?.(model);
+      errorRef.current = undefined;
 
-      // has selector
-      if (selectorRef.current) {
-        const nextValue = selectorRef.current(...models);
-        const compareFn = getCompareFunction(compareFnRef.current);
-        // nothing change
-        if (compareFn(prevValue, nextValue)) return;
-        prevValue = nextValue;
+      try {
+        if (renderingRef.current) return;
+        optionsRef.current.onChange?.(model);
+
+        // has selector
+        if (selectorRef.current) {
+          const nextValue = selectorRef.current(...models);
+          const compareFn = getCompareFunction(compareFnRef.current);
+          // nothing change
+          if (compareFn(prevValue, nextValue)) return;
+          prevValue = nextValue;
+        }
+      } catch (e) {
+        errorRef.current = e;
       }
 
       rerender({});
@@ -1103,6 +1111,12 @@ const useModel: UseModel = (...args: any[]): any => {
   }
 
   renderingRef.current = false;
+
+  if (errorRef.current) {
+    const error = errorRef.current;
+    errorRef.current = undefined;
+    throw error;
+  }
 
   if (selectorRef.current) {
     return selectorRef.current(...models);
@@ -1250,7 +1264,6 @@ const sync: Sync = (model: AsyncModel, ...args: any[]) => {
 };
 
 const async: Async = (options?: any): AsyncModel => {
-  let changeToken = {};
   return {
     data: options?.initial,
     loading: false,
@@ -1259,8 +1272,15 @@ const async: Async = (options?: any): AsyncModel => {
     onSuccess() {},
     onError() {},
     onDone() {},
+    cancel() {
+      if (!this.loading) return;
+      (this as any)._token = {};
+      (this as any)._promise?.cancel?.();
+      (this as any)._promise = undefined;
+      this.loading = false;
+    },
     load(fn: Function) {
-      const token = (changeToken = {});
+      const token = ((this as any)._token = {});
       this.loading = true;
       this.error = undefined;
       const model = of(this);
@@ -1268,14 +1288,14 @@ const async: Async = (options?: any): AsyncModel => {
       const promise = new Promise((resolve, reject) => {
         fn().then(
           (data: any) => {
-            if (token !== changeToken) return;
+            if (token !== (this as any)._token) return;
             model.$merge({ loading: false, data });
             model.onSuccess();
             model.onDone();
             resolve(data);
           },
           (error: any) => {
-            if (token !== changeToken) return;
+            if (token !== (this as any)._token) return;
             model.$merge({ loading: false, error });
             model.onError();
             model.onDone();
