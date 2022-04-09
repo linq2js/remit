@@ -1,4 +1,4 @@
-import { async, create, inject, Model, of } from "./main";
+import { async, create, inject, Model, of, sync } from "./main";
 import { delay } from "./testUtils";
 
 beforeEach(() => {
@@ -318,4 +318,57 @@ test("$slice", () => {
   expect(logs).toEqual(["slice3", "slice2", "slice1"]);
   root.other++;
   expect(logs).toEqual(["slice3", "slice2", "slice1"]);
+});
+
+test("sync: with default value (success)", async () => {
+  const model = create({
+    ...async<number>(),
+    onInit() {
+      this.load(() => delay(10).then(() => 1));
+    },
+  });
+  expect(model.loading).toBeTruthy();
+  expect(sync(model, 0)).toBe(0);
+  await delay(15);
+  expect(sync(model, 0)).toBe(1);
+});
+
+test("sync: with default value (error)", async () => {
+  const model = create({
+    ...async<number>(),
+    onInit() {
+      this.load(() =>
+        delay(10).then(() => {
+          throw new Error();
+        })
+      );
+    },
+  });
+  expect(model.loading).toBeTruthy();
+  expect(sync(model, 0)).toBe(0);
+  await delay(15);
+  expect(sync(model, 0)).toBe(0);
+});
+
+test("sync: (error)", async () => {
+  const model = create({
+    ...async<number>(),
+    onInit() {
+      this.load(() =>
+        delay(10).then(() => {
+          throw new Error("invalid");
+        })
+      );
+    },
+  });
+  expect(model.loading).toBeTruthy();
+  try {
+    sync(model);
+    // it should not reach here
+    throw new Error();
+  } catch (e) {
+    expect(e).toBeInstanceOf(Promise);
+  }
+  await delay(15);
+  expect(() => sync(model)).toThrow("invalid");
 });

@@ -43,11 +43,15 @@ interface CacheItem {
   token: any;
 }
 
-interface AsyncModel<TData, TError> {
+interface AsyncModel<TData = any, TError = any> {
   data: TData;
   error: TError;
   loading: boolean;
   load(loader: () => Promise<TData>): Promise<TData>;
+  onLoad(): void;
+  onSuccess(): void;
+  onError(): void;
+  onDone(): void;
 }
 interface Async {
   <TData = any, TError = any>(): AsyncModel<TData, TError>;
@@ -1201,7 +1205,41 @@ function throttle(ms: number): ConcurrentMode {
     };
 }
 
-const async: Async = (options?: any): any => {
+interface Sync {
+  <TData>(model: AsyncModel<TData>, defaultValue?: TData): TData;
+  <TData, TResult>(
+    model: AsyncModel<TData>,
+    selector: (data: TData) => TResult,
+    defaultValue?: TData
+  ): TResult;
+}
+
+const sync: Sync = (model: AsyncModel, ...args: any[]) => {
+  let selector: Function | undefined;
+  let defaultValue: any;
+  let hasDefaultValue = false;
+  if (typeof args[0] === "function") {
+    [selector, defaultValue] = args;
+    hasDefaultValue = args.length > 1;
+  } else {
+    defaultValue = args[0];
+    hasDefaultValue = !!args.length;
+  }
+  if (model.error) {
+    if (hasDefaultValue) return defaultValue;
+    throw model.error;
+  }
+  if (model.loading) {
+    if (hasDefaultValue) return defaultValue;
+    throw (model as any)._promise;
+  }
+  if (selector) {
+    return selector(model.data);
+  }
+  return model.data;
+};
+
+const async: Async = (options?: any): AsyncModel => {
   let changeToken = {};
   return {
     data: options?.initial,
@@ -1216,7 +1254,7 @@ const async: Async = (options?: any): any => {
       this.loading = true;
       const model = of(this);
       model.onLoad();
-      return new Promise((resolve, reject) => {
+      const promise = new Promise((resolve, reject) => {
         fn().then(
           (data: any) => {
             if (token !== changeToken) return;
@@ -1234,6 +1272,9 @@ const async: Async = (options?: any): any => {
           }
         );
       });
+      // handle rejection
+      promise.catch(() => {});
+      return ((this as any)._promise = promise);
     },
   };
 };
@@ -1252,6 +1293,8 @@ export {
   Comparer,
   Observer,
   ConcurrentMode,
+  Async,
+  Sync,
   AsyncModel,
   Emitter,
   as,
@@ -1259,6 +1302,7 @@ export {
   isModel,
   useModel,
   async,
+  sync,
   create,
   inject,
   shallowCompare,
