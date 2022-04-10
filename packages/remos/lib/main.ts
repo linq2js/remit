@@ -1037,7 +1037,7 @@ class AbstractMethodError extends Error {
   }
 }
 
-const abstract = <TResult = void, TArgs extends any[] = []>(
+const abstract = <TArgs extends any[] = any[], TResult = void>(
   name?: string
 ): ((...args: TArgs) => TResult) => {
   return (() => {

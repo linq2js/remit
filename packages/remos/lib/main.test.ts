@@ -1,4 +1,4 @@
-import { async, create, inject, Model, of, sync } from "./main";
+import { abstract, async, create, inject, Model, of, sync } from "./main";
 import { delay } from "./testUtils";
 
 beforeEach(() => {
@@ -419,9 +419,7 @@ test("oop: abstraction", () => {
   const calculator = {
     a: 0,
     b: 0,
-    print(_: any) {
-      throw new Error("Not implemented yet");
-    },
+    print: abstract<[number]>(),
     sum() {
       const result = this.a + this.b;
       this.print(result);
