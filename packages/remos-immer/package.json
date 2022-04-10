@@ -1,6 +1,6 @@
 {
   "name": "remos-immer",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "An Immer wrapper for Remos",
   "author": "linq2js <linqtojs@gmail.com>",
   "repository": {
