@@ -43,11 +43,27 @@ interface CacheItem {
   token: any;
 }
 
+interface Sync {
+  <TData>(model: AsyncModel<TData>, defaultValue?: TData): TData;
+  <TData, TResult>(
+    model: AsyncModel<TData>,
+    selector: (data: TData) => TResult,
+    defaultValue?: TData
+  ): TResult;
+}
+
+interface AsyncModelLoadContext extends Cancellable {
+  singal: AbortController["signal"];
+}
+
 interface AsyncModel<TData = any, TError = any> {
   data: TData;
   error: TError;
   loading: boolean;
-  load(loader: () => Promise<TData>): Promise<TData>;
+  load(
+    loader: (cancellable: AsyncModelLoadContext) => Promise<TData>,
+    timeout?: number
+  ): CancellablePromise<TData>;
   onLoad(): void;
   onSuccess(): void;
   onError(): void;
@@ -61,6 +77,13 @@ interface Async {
     TError
   >;
 }
+
+interface Cancellable {
+  cancelled(): boolean;
+  cancel(): void;
+}
+
+interface CancellablePromise<T = any> extends Promise<T>, Cancellable {}
 
 const typeProp = "$$type";
 const familyProp = "$family";
@@ -1286,13 +1309,19 @@ function throttle(ms: number): ConcurrentMode {
     };
 }
 
-interface Sync {
-  <TData>(model: AsyncModel<TData>, defaultValue?: TData): TData;
-  <TData, TResult>(
-    model: AsyncModel<TData>,
-    selector: (data: TData) => TResult,
-    defaultValue?: TData
-  ): TResult;
+function createCancellable(onCancel?: VoidFunction) {
+  let cancelled = false;
+  const cancellable: Cancellable = {
+    cancelled() {
+      return cancelled;
+    },
+    cancel() {
+      if (cancelled) return;
+      cancelled = true;
+      onCancel?.();
+    },
+  };
+  return cancellable;
 }
 
 const sync: Sync = (model: AsyncModel, ...args: any[]) => {
@@ -1336,32 +1365,52 @@ const async: Async = (options?: any): AsyncModel => {
       (this as any)._promise = undefined;
       this.loading = false;
     },
-    load(fn: Function) {
-      const token = ((this as any)._token = {});
+    load(fn: Function, timeout) {
       this.loading = true;
       this.error = undefined;
+
+      let timer: any;
+      const token = ((this as any)._token = {});
       const model = of(this);
-      model.onLoad();
-      const promise = new Promise((resolve, reject) => {
-        fn().then(
-          (data: any) => {
-            if (token !== (this as any)._token) return;
-            model.$merge({ loading: false, data });
-            model.onSuccess();
-            model.onDone();
-            resolve(data);
-          },
-          (error: any) => {
-            if (token !== (this as any)._token) return;
-            model.$merge({ loading: false, error });
-            model.onError();
-            model.onDone();
-            reject(error);
-          }
-        );
+      const abortController = new AbortController();
+      const cancellable = createCancellable(() => {
+        clearTimeout(timer);
+        abortController.abort();
       });
+
+      model.onLoad();
+
+      const promise: CancellablePromise = Object.assign(
+        new Promise((resolve, reject) => {
+          fn(
+            Object.assign(cancellable, { signal: abortController.signal })
+          ).then(
+            (data: any) => {
+              if (token !== (this as any)._token) return;
+              model.$merge({ loading: false, data });
+              model.onSuccess();
+              model.onDone();
+              resolve(data);
+            },
+            (error: any) => {
+              if (token !== (this as any)._token) return;
+              model.$merge({ loading: false, error });
+              model.onError();
+              model.onDone();
+              reject(error);
+            }
+          );
+        }),
+        cancellable
+      );
+
       // handle rejection
       promise.catch(() => {});
+
+      if (timer) {
+        timer = setTimeout(cancellable.cancel, timeout);
+      }
+
       return ((this as any)._promise = promise);
     },
   };
@@ -1385,6 +1434,7 @@ export {
   Sync,
   AsyncModel,
   Emitter,
+  CancellablePromise,
   as,
   of,
   isModel,
@@ -1396,6 +1446,7 @@ export {
   shallowCompare,
   strictCompare,
   createEmitter,
+  createCancellable,
   debounce,
   throttle,
   once,
