@@ -696,7 +696,7 @@ const create: Create = (...args: any[]): any => {
     ...createSlicable(modelGetter),
     $props: props,
     $dirty(prop: any) {
-      if (!props) {
+      if (!prop) {
         return changeToken !== initialToken;
       }
       return props[prop] !== data[prop];
