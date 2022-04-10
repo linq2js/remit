@@ -1,1 +1,1 @@
-export { default } from "./LocalModelDemo";
+export { default } from "./HackerNewsDemo";

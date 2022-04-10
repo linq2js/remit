@@ -113,16 +113,15 @@ function withDevTools(): Injector {
     const name: string | undefined = props._DEVTOOLS_NAME;
     if (!name) return;
 
-    api.$observe((type, value) => {
+    api.$observe((args) => {
       if (isRollingBack) return;
-      if (type === "read") return;
+      if (args.type === "read") return;
       const getKey: Function | undefined = (api.$model as any).$key;
-      const actionType = `${name + (getKey ? "[]" : "")}:${type}${
-        value
-          ? ":" +
-            (typeof value === "function"
-              ? value.name || value.displayName
-              : value)
+      const actionType = `${name + (getKey ? "[]" : "")}:${args.type}${
+        args.type === "write"
+          ? ":" + args.key
+          : args.type === "call"
+          ? ":" + args.method
           : ""
       }`;
 
@@ -133,7 +132,7 @@ function withDevTools(): Injector {
           if (!list) {
             allModels[name] = list = [];
           }
-          if (type === "remove") {
+          if (args.type === "remove") {
             allModels[name] = list.filter((x) => x.key !== key);
           } else {
             const model = list.find((x: any) => x.key === key);

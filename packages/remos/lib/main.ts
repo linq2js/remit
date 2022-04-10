@@ -1,9 +1,41 @@
 import * as React from "react";
 
-type Observer = (
-  type: "read" | "write" | "call" | "remove",
-  value: any
-) => void;
+interface MethodCallArgs {
+  type: "call";
+  method: string;
+  args: any[];
+}
+
+interface MemberRemoveArgs {
+  type: "remove";
+  key: any;
+  model: MemberModel;
+}
+
+interface ReadDataArgs {
+  type: "read";
+  key: string;
+}
+
+interface WriteDataArgs {
+  type: "write";
+  key: string;
+  value: any;
+}
+
+type ObserverArgs =
+  | MethodCallArgs
+  | MemberRemoveArgs
+  | ReadDataArgs
+  | WriteDataArgs;
+
+type ActivityFilter =
+  | Omit<MethodCallArgs, "args">
+  | Omit<MemberRemoveArgs, "model">
+  | ReadDataArgs
+  | Omit<WriteDataArgs, "value">;
+
+type Observer = (args: ObserverArgs) => void;
 type Wrapper = (next: Function, model: Model) => Function;
 type Injector = (api: ModelApi, props: any) => void;
 type Comparer<T = any> = "strict" | "shallow" | ((a: T, b: T) => boolean);
@@ -44,22 +76,27 @@ interface CacheItem {
 }
 
 interface Sync {
-  <TData>(model: AsyncModel<TData>, defaultValue?: TData): TData;
+  <TData>(model: Loadable<TData>, defaultValue?: TData): TData;
   <TData, TResult>(
-    model: AsyncModel<TData>,
+    model: Loadable<TData>,
     selector: (data: TData) => TResult,
-    defaultValue?: TData
+    defaultValue?: TResult
   ): TResult;
 }
 
 interface AsyncModelLoadContext extends Cancellable {
-  singal: AbortController["signal"];
+  singal: any;
 }
 
-interface AsyncModel<TData = any, TError = any> {
+interface Loadable<TData = any, TError = any> {
   data: TData;
   error: TError;
   loading: boolean;
+  promise: CancellablePromise<TData> | undefined;
+}
+
+interface AsyncModel<TData = any, TError = any>
+  extends Loadable<TData, TError> {
   /**
    *
    * @param loader
@@ -89,6 +126,12 @@ interface AsyncModel<TData = any, TError = any> {
    * lifecycle
    */
   cancel(): void;
+  /**
+   * merge incoming data and loaded data
+   * @param next
+   * @param prev
+   */
+  update(next: TData, prev: TData): TData;
 }
 interface Async {
   <TData = any, TError = any>(): AsyncModel<TData, TError>;
@@ -281,9 +324,13 @@ interface ModelApi<TProps extends {} = {}>
 
   $batch(updater: (model: Model<TProps>) => void, lazy?: boolean): void;
 
-  $observe(observer: Observer): this;
+  $observe(observer: Observer): VoidFunction;
 
-  $observe(observers: Observer[]): this;
+  $when(observer: Observer): CancellablePromise<ObserverArgs>;
+
+  $when(
+    filter: ActivityFilter | ActivityFilter[]
+  ): CancellablePromise<ObserverArgs>;
 
   $wrap(wrapper: Wrapper): this;
 
@@ -655,6 +702,15 @@ const create: Create = (...args: any[]): any => {
   let updatingJobs = 0;
   const initialToken = {};
   let changeToken = initialToken;
+  const activityEmitter = createEmitter();
+  const changeEmitter = createEmitter();
+  const cache = new Map<string, CacheItem>();
+  const family = new Map<any, Model>();
+  const wrappers: Wrapper[] = [];
+  const notifyChange = () => {
+    model.onChange?.();
+    changeEmitter.emit();
+  };
 
   let initialized = false;
   let api: InternalModelApi;
@@ -663,22 +719,12 @@ const create: Create = (...args: any[]): any => {
   let slientRequests = 0;
   let lockers = 0;
   let touched = new Set<string>();
-  const emitter = createEmitter();
-  const cache = new Map<string, CacheItem>();
-  const family = new Map<any, Model>();
-  const observers: Observer[] = [];
-  const wrappers: Wrapper[] = [];
-  const notifyChange = () => {
-    model.onChange?.();
-    emitter.emit();
-  };
 
   // clone prop
   const data: any = {};
 
-  function emit(...args: Parameters<Observer>) {
-    const [type, value] = args;
-    observers.forEach((o) => o(type, value));
+  function emit(args: ObserverArgs) {
+    activityEmitter.emit(args);
   }
 
   function assign(props: any, target: any = model) {
@@ -728,6 +774,28 @@ const create: Create = (...args: any[]): any => {
     }
   }
 
+  function familyAction(
+    method: keyof Model,
+    args?: IArguments | any[] | false
+  ): undefined | any[] {
+    if (familyKeyProp) {
+      if (args === false) {
+        throw new Error(
+          `The family model does not support this method ${method}`
+        );
+      }
+      const result: any[] = [];
+      family.forEach((member) => {
+        const m: any = member[method];
+        if (typeof m === "function") {
+          result.push(m(...((args ?? []) as any)));
+        }
+      });
+      return result as any;
+    }
+    return undefined;
+  }
+
   function init() {
     if (initialized || isCreating) return;
     initialized = true;
@@ -739,24 +807,32 @@ const create: Create = (...args: any[]): any => {
   api = {
     [typeProp]: () => modelType,
 
-    ...createListenable(modelGetter, emitter, init),
+    ...createListenable(modelGetter, changeEmitter, init),
     ...createWatchable(modelGetter),
     ...createSlicable(modelGetter),
     $props: props,
     $dirty(prop: any) {
+      familyAction("$dirty", false);
+
       if (!prop) {
         return changeToken !== initialToken;
       }
       return props[prop] !== data[prop];
     },
     $touched(prop) {
+      familyAction("$touched", false);
+
       if (!prop) return !!touched.size;
       return touched.has(prop as any);
     },
-    $data: () => data,
+    $data() {
+      familyAction("$data", false);
+
+      return data;
+    },
     $$initMember(key: any, family: Map<any, Model>) {
       let removed = false;
-      Object.assign(model as MemberModel, {
+      const memberModel = Object.assign(model as MemberModel, {
         $all: () =>
           Array.from(family.values()).map((x) => ({
             key: (x as MemberModel).$key(),
@@ -767,7 +843,7 @@ const create: Create = (...args: any[]): any => {
           if (removed) return;
           removed = true;
           family.delete(key);
-          emit("remove", undefined);
+          emit({ type: "remove", model: memberModel, key });
         },
       });
     },
@@ -788,6 +864,12 @@ const create: Create = (...args: any[]): any => {
     toJSON: () => data,
 
     $silent() {
+      const familyResult: VoidFunction[] | undefined = familyAction("$silent");
+
+      if (familyResult) {
+        return () => familyResult.forEach((x) => x());
+      }
+
       let active = true;
       const token = changeToken;
       slientRequests++;
@@ -802,6 +884,12 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $lock() {
+      const familyResult: VoidFunction[] | undefined = familyAction("$lock");
+
+      if (familyResult) {
+        return () => familyResult.forEach((x) => x());
+      }
+
       let active = true;
       lockers++;
       return () => {
@@ -810,6 +898,8 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $sync(models, selector, mode) {
+      familyAction("$sync", false);
+
       if (isModel(models)) {
         const model = models as unknown as Model;
         return model.$listen(() => {
@@ -838,11 +928,71 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $call(fn, ...args) {
+      const familyResult = familyAction("$call", arguments);
+      if (familyResult) return familyResult[0];
+
       return call(fn, args);
     },
-    $observe(input) {
-      observers.push(...(Array.isArray(input) ? input : [input]));
-      return this;
+    $observe: activityEmitter.add,
+    $when(input) {
+      let unsubscribe: Function | undefined;
+      const cancellalbe = createCancellable(() => unsubscribe?.());
+      return Object.assign(
+        new Promise<ObserverArgs>((resolve) => {
+          let observer: Observer;
+          if (typeof input === "function") {
+            observer = input;
+          } else {
+            const filter: ActivityFilter[] = Array.isArray(input)
+              ? input
+              : [input];
+            observer = (o) => {
+              if (
+                filter.some((x) => {
+                  if (
+                    x.type === "call" &&
+                    o.type === "call" &&
+                    x.method === o.method
+                  ) {
+                    return true;
+                  }
+
+                  if (
+                    x.type === "read" &&
+                    o.type === "read" &&
+                    x.key === o.key
+                  ) {
+                    return true;
+                  }
+
+                  if (
+                    x.type === "write" &&
+                    o.type === "write" &&
+                    x.key === o.key
+                  ) {
+                    return true;
+                  }
+
+                  if (
+                    x.type === "remove" &&
+                    o.type === "remove" &&
+                    x.key === o.key
+                  ) {
+                    return true;
+                  }
+
+                  return false;
+                })
+              ) {
+                cancellalbe.cancel();
+                resolve(o);
+              }
+            };
+          }
+          unsubscribe = activityEmitter.add(observer);
+        }),
+        cancellalbe
+      );
     },
     $wrap(input) {
       if (!isCreating) {
@@ -901,13 +1051,14 @@ const create: Create = (...args: any[]): any => {
       return Object.assign(promise, { cancel: () => cancel?.() });
     },
     $reset(hardReset) {
+      if (familyAction("$reset", arguments)) return;
       call(() => {
         changeToken = initialToken;
         cache.clear();
         touched.clear();
         if (hardReset) {
           family.clear();
-          emitter.clear();
+          changeEmitter.clear();
         }
         assign(props, data);
         initialized = false;
@@ -915,6 +1066,7 @@ const create: Create = (...args: any[]): any => {
       });
     },
     $merge(props: any, lazy?: boolean) {
+      if (familyAction("$merge", arguments)) return;
       call(assign, [props], !!lazy);
     },
     $memo(...args: any[]) {
@@ -1002,7 +1154,11 @@ const create: Create = (...args: any[]): any => {
       });
 
       model[key] = (...args: any[]) => {
-        emit("call", method);
+        emit({
+          type: "call",
+          method: method.displayName || method.name || method.toString(),
+          args,
+        });
         const prevInvokingMethodName = invokingMethodName;
         invokingMethodName = key;
         try {
@@ -1043,13 +1199,13 @@ const create: Create = (...args: any[]): any => {
         enumerable: true,
         get: () => {
           init();
-          emit("read", key);
+          emit({ type: "read", key });
           return data[key];
         },
         set: (value: any) => {
           if (lockers) return;
           init();
-          emit("write", key);
+          emit({ type: "write", key, value });
           if (value === data[key]) return;
           data[key] = value;
           touched.add(key);
@@ -1344,7 +1500,7 @@ function createCancellable(onCancel?: VoidFunction) {
   return cancellable;
 }
 
-const sync: Sync = (model: AsyncModel, ...args: any[]) => {
+const sync: Sync = (model: Loadable, ...args: any[]) => {
   let selector: Function | undefined;
   let defaultValue: any;
   let hasDefaultValue = false;
@@ -1361,7 +1517,7 @@ const sync: Sync = (model: AsyncModel, ...args: any[]) => {
   }
   if (model.loading) {
     if (hasDefaultValue) return defaultValue;
-    throw (model as any)._promise;
+    throw model.promise;
   }
   if (selector) {
     return selector(model.data);
@@ -1374,6 +1530,10 @@ const async: Async = (options?: any): AsyncModel => {
     data: options?.initial,
     loading: false,
     error: undefined,
+    promise: undefined,
+    update(next) {
+      return next;
+    },
     onLoad() {},
     onSuccess() {},
     onError() {},
@@ -1381,8 +1541,8 @@ const async: Async = (options?: any): AsyncModel => {
     cancel() {
       if (!this.loading) return;
       (this as any)._token = {};
-      (this as any)._promise?.cancel?.();
-      (this as any)._promise = undefined;
+      this.promise?.cancel();
+      this.promise = undefined;
       this.loading = false;
     },
     load(fn: Function, timeout) {
@@ -1392,10 +1552,13 @@ const async: Async = (options?: any): AsyncModel => {
       let timer: any;
       const token = ((this as any)._token = {});
       const model = of(this);
-      const abortController = new AbortController();
+      const abortController =
+        typeof AbortController !== "undefined"
+          ? new AbortController()
+          : undefined;
       const cancellable = createCancellable(() => {
         clearTimeout(timer);
-        abortController.abort();
+        abortController?.abort();
       });
 
       model.onLoad();
@@ -1403,11 +1566,14 @@ const async: Async = (options?: any): AsyncModel => {
       const promise: CancellablePromise = Object.assign(
         new Promise((resolve, reject) => {
           fn(
-            Object.assign(cancellable, { signal: abortController.signal })
+            Object.assign(cancellable, { signal: abortController?.signal })
           ).then(
             (data: any) => {
               if (token !== (this as any)._token) return;
-              model.$merge({ loading: false, data });
+              model.$merge({
+                loading: false,
+                data: model.update(data, model.data),
+              });
               model.onSuccess();
               model.onDone();
               resolve(data);
@@ -1431,7 +1597,7 @@ const async: Async = (options?: any): AsyncModel => {
         timer = setTimeout(cancellable.cancel, timeout);
       }
 
-      return ((this as any)._promise = promise);
+      return (this.promise = promise);
     },
   };
 };
