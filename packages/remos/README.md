@@ -226,6 +226,7 @@ const App = () => {
 2. [Todo App](https://codesandbox.io/s/remos-todo-qlqmne)
 3. [Using React Suspense](https://codesandbox.io/s/remos-suspense-nxj8cc)
 4. [Family Model](https://codesandbox.io/s/remos-family-b0yfnu)
+5. [Local Model](https://codesandbox.io/s/local-model-fnso1b)
 
 ## Addons
 

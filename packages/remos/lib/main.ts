@@ -146,6 +146,7 @@ interface ModelApi<TProps extends {} = {}>
    * indicate the model is whether dirty or not
    */
   $dirty(prop?: keyof TProps): boolean;
+  $touched(prop?: keyof TProps): boolean;
   $data(): Data<TProps>;
 
   /**
@@ -615,6 +616,7 @@ const create: Create = (...args: any[]): any => {
   let isCreating = true;
   let invokingMethodName: string | undefined;
   let lockers = 0;
+  let touched = new Set<string>();
   const emitter = createEmitter();
   const cache = new Map<string, CacheItem>();
   const family = new Map<any, Model>();
@@ -700,6 +702,10 @@ const create: Create = (...args: any[]): any => {
         return changeToken !== initialToken;
       }
       return props[prop] !== data[prop];
+    },
+    $touched(prop) {
+      if (!prop) return !!touched.size;
+      return touched.has(prop as any);
     },
     $data: () => data,
     $$initMember(key: any, family: Map<any, Model>) {
@@ -844,6 +850,7 @@ const create: Create = (...args: any[]): any => {
       call(() => {
         changeToken = initialToken;
         cache.clear();
+        touched.clear();
         if (hardReset) {
           family.clear();
           emitter.clear();
@@ -990,6 +997,7 @@ const create: Create = (...args: any[]): any => {
           emit("write", key);
           if (value === data[key]) return;
           data[key] = value;
+          touched.add(key);
           changeToken = {};
           if (updatingJobs) return;
           notifyChange();

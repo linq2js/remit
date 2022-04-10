@@ -1,1 +1,1 @@
-export { default } from "./SuspenseDemo";
+export { default } from "./LocalModelDemo";
