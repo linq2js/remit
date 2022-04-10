@@ -145,7 +145,7 @@ interface ModelApi<TProps extends {} = {}>
   /**
    * indicate the model is whether dirty or not
    */
-  $dirty(): boolean;
+  $dirty(prop?: keyof TProps): boolean;
   $data(): Data<TProps>;
 
   /**
@@ -695,7 +695,12 @@ const create: Create = (...args: any[]): any => {
     ...createWatchable(modelGetter),
     ...createSlicable(modelGetter),
     $props: props,
-    $dirty: () => changeToken !== initialToken,
+    $dirty(prop: any) {
+      if (!props) {
+        return changeToken !== initialToken;
+      }
+      return props[prop] !== data[prop];
+    },
     $data: () => data,
     $$initMember(key: any, family: Map<any, Model>) {
       let removed = false;
