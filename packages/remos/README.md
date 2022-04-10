@@ -40,76 +40,66 @@ const App = () => {
 };
 ```
 
-## Todo App (68 lines of code) [CodeSandbox](https://codesandbox.io/s/remos-todo-qlqmne)
+## Core Concepts
 
-```jsx
-import { create, useModel } from "remos";
+Imagine the model is where to describe a state and actions of the application. A simple model looks like this:
 
-let id = 0;
-const $todo = create({
-  filter: "all",
-  todos: {},
-  add(title) {
-    this.todos = { ...this.todos, [++id]: { id, title } };
-  },
-  remove(id) {
-    const { [id]: removed, ...others } = this.todos;
-    this.todos = others;
-  },
-  toggle(id) {
-    const { [id]: todo, ...others } = this.todos;
-    others[id] = { ...todo, done: !todo.done };
-    this.todos = others;
-  },
-  filtered() {
-    const todos = Object.values(this.todos);
-    if (this.filter === "all") return todos;
-    if (this.filter === "completed") return todos.filter((x) => x.done);
-    return todos.filter((x) => !x.done);
+```js
+import { create } from "remos";
+
+const counterModel = create({
+  // define count prop and set initial value as 0
+  count: 0,
+  // define model method
+  increase() {
+    // update model prop, the 'this' keyword means the current model
+    this.count++;
   },
 });
+// even we can update the model prop outside the model's methods
+// but describing method to escapsule the model logics and those logics can re-use easily
+counterModel.count++;
+```
 
-const Filter = ({ value }) => {
-  const disabled = useModel($todo, (x) => x.filter === value);
-  const onClick = () => ($todo.filter = value);
-  return (
-    <input type="button" onClick={onClick} disabled={disabled} value={value} />
-  );
-};
+## Lifecycle methods
 
-const TodoItem = ({ id, title, done }) => (
-  <div>
-    <button onClick={() => $todo.remove(id)}>x</button>
-    <input type="checkbox" checked={done} onChange={() => $todo.toggle(id)} />
-    <span style={{ opacity: done ? 0.5 : 1 }}>{title}</span>
-  </div>
-);
+You can define lifecycle methods to handle some special events of the model
 
-const TodoList = () => {
-  const { filtered } = useModel($todo);
-  const todoComps = filtered().map((x) => <TodoItem key={x.id} {...x} />);
-  return <div>{todoComps}</div>;
-};
+```js
+const model = create({
+  firstName: "",
+  lastName: "",
+  // this method will be called when the model has first access (get, set, listen)
+  onInit() {},
+  // this method will be called whenever the model's props are changed
+  onChange() {},
+  // this method will be called when firstName prop changed
+  // that means you can define onXXXChange() to handle changing event of other props
+  onFirstNameChange() {},
+  // this method will be called to validate the firstName prop
+  validateFirstName() {
+    // returning true to mark the firstName prop is VALID
+    // returning false to mark the firstName prop is INALID
+    // throwing an error to mark the firstName prop is INVALID
+    // calling $invalid('firstName', true/false/Error) to set the invalid status of the firstName prop
+  },
+  // this method will be called after onChange() call,
+  // you can put the validation logic for whole model here
+  validateAll() {},
+});
+```
+
+## Binding with React
+
+Using useModel to bind the model to the host component, when the model changes, the host component re-renders
+
+```js
+import { useModel } from "remos";
+import myModel from "path/to/model";
 
 const App = () => {
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    $todo.add(e.target.title.value);
-    e.target.title.value = "";
-  };
-  return (
-    <>
-      <form onSubmit={handleSubmit}>
-        <input name="title" placeholder="Enter title..." />
-      </form>
-      <div>
-        <Filter value="all" />
-        <Filter value="completed" />
-        <Filter value="incompleted" />
-      </div>
-      <TodoList />
-    </>
-  );
+  useModel(myModel);
+  return <div><{myModel.myProp}/div>;
 };
 ```
 

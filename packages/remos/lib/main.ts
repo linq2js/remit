@@ -229,10 +229,32 @@ interface ModelApi<TProps extends {} = {}>
   readonly $model: Model<TProps>;
   readonly $props: TProps;
   /**
-   * indicate the model is whether dirty or not
+   * return dirty status of the model
    */
-  $dirty(prop?: keyof TProps): boolean;
-  $touched(prop?: keyof TProps): boolean;
+  $dirty(): boolean;
+  /**
+   * return dirty status of the specified prop
+   * @param prop
+   */
+  $dirty(prop: keyof TProps): boolean;
+
+  /**
+   * return touched status of the model
+   */
+  $touched(): boolean;
+
+  /**
+   * return a touched status of specifid prop
+   * @param prop
+   */
+  $touched(prop: keyof TProps): boolean;
+
+  $invalid(): boolean;
+
+  $invalid(prop: keyof TProps): any;
+
+  $invalid(prop: keyof TProps, invalid: any): void;
+
   $data(): Data<TProps>;
 
   /**
@@ -707,8 +729,10 @@ const create: Create = (...args: any[]): any => {
   const cache = new Map<string, CacheItem>();
   const family = new Map<any, Model>();
   const wrappers: Wrapper[] = [];
+  const invalid = new Map<string, any>();
   const notifyChange = () => {
     model.onChange?.();
+    model.validateAll?.();
     changeEmitter.emit();
   };
 
@@ -774,7 +798,7 @@ const create: Create = (...args: any[]): any => {
     }
   }
 
-  function familyAction(
+  function familyMethod(
     method: keyof Model,
     args?: IArguments | any[] | false
   ): undefined | any[] {
@@ -796,6 +820,50 @@ const create: Create = (...args: any[]): any => {
     return undefined;
   }
 
+  function virtualMethod<T>(
+    prefix: string,
+    name: string,
+    postfix: string,
+    invoker?: (method: Function) => T
+  ) {
+    const methodName = prefix + name[0].toUpperCase() + name.slice(1) + postfix;
+    const method = model[methodName];
+    if (typeof method === "function") {
+      if (invoker) {
+        return invoker(method);
+      }
+      return method();
+    }
+  }
+
+  function setInvalid(prop: string, value: any, invert: boolean) {
+    // is error object
+    if (typeof value === "object" && value) {
+      // nothing to change
+      if (invalid.get(prop) === value) return false;
+      invalid.set(prop, value);
+      return true;
+    }
+
+    if (typeof value === "undefined" || value === null) {
+      return false;
+    }
+
+    if (invert) {
+      value = !value;
+    }
+    if (value) {
+      if (invalid.has(prop)) return false;
+      invalid.set(prop, true);
+      return true;
+    }
+    if (invalid.has(prop)) {
+      invalid.delete(prop);
+      return true;
+    }
+    return false;
+  }
+
   function init() {
     if (initialized || isCreating) return;
     initialized = true;
@@ -811,22 +879,31 @@ const create: Create = (...args: any[]): any => {
     ...createWatchable(modelGetter),
     ...createSlicable(modelGetter),
     $props: props,
-    $dirty(prop: any) {
-      familyAction("$dirty", false);
+    $invalid(prop?, value?) {
+      if (!arguments.length) return !!invalid.size;
+      if (arguments.length < 2) {
+        return invalid.get(prop as any);
+      }
+      if (setInvalid(prop as any, value, false)) {
+        notifyChange();
+      }
+    },
+    $dirty(prop?: any) {
+      familyMethod("$dirty", false);
 
       if (!prop) {
         return changeToken !== initialToken;
       }
       return props[prop] !== data[prop];
     },
-    $touched(prop) {
-      familyAction("$touched", false);
+    $touched(prop?) {
+      familyMethod("$touched", false);
 
       if (!prop) return !!touched.size;
       return touched.has(prop as any);
     },
     $data() {
-      familyAction("$data", false);
+      familyMethod("$data", false);
 
       return data;
     },
@@ -864,7 +941,7 @@ const create: Create = (...args: any[]): any => {
     toJSON: () => data,
 
     $silent() {
-      const familyResult: VoidFunction[] | undefined = familyAction("$silent");
+      const familyResult: VoidFunction[] | undefined = familyMethod("$silent");
 
       if (familyResult) {
         return () => familyResult.forEach((x) => x());
@@ -884,7 +961,7 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $lock() {
-      const familyResult: VoidFunction[] | undefined = familyAction("$lock");
+      const familyResult: VoidFunction[] | undefined = familyMethod("$lock");
 
       if (familyResult) {
         return () => familyResult.forEach((x) => x());
@@ -898,7 +975,7 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $sync(models, selector, mode) {
-      familyAction("$sync", false);
+      familyMethod("$sync", false);
 
       if (isModel(models)) {
         const model = models as unknown as Model;
@@ -928,7 +1005,7 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $call(fn, ...args) {
-      const familyResult = familyAction("$call", arguments);
+      const familyResult = familyMethod("$call", arguments);
       if (familyResult) return familyResult[0];
 
       return call(fn, args);
@@ -1051,11 +1128,12 @@ const create: Create = (...args: any[]): any => {
       return Object.assign(promise, { cancel: () => cancel?.() });
     },
     $reset(hardReset) {
-      if (familyAction("$reset", arguments)) return;
+      if (familyMethod("$reset", arguments)) return;
       call(() => {
         changeToken = initialToken;
         cache.clear();
         touched.clear();
+        invalid.clear();
         if (hardReset) {
           family.clear();
           changeEmitter.clear();
@@ -1066,7 +1144,7 @@ const create: Create = (...args: any[]): any => {
       });
     },
     $merge(props: any, lazy?: boolean) {
-      if (familyAction("$merge", arguments)) return;
+      if (familyMethod("$merge", arguments)) return;
       call(assign, [props], !!lazy);
     },
     $memo(...args: any[]) {
@@ -1211,7 +1289,30 @@ const create: Create = (...args: any[]): any => {
           touched.add(key);
           changeToken = {};
           // trigger individual prop change event
-          model["on" + key[0].toUpperCase() + key.slice(1) + "Change"]?.();
+          virtualMethod("on", key, "Change");
+          virtualMethod("validate", key, "", (m) => {
+            try {
+              const result = m();
+              if (typeof result?.then === "function") {
+                result.then(
+                  (resolved: any) => {
+                    // there is something changed since last time
+                    if (value !== data[key]) return;
+                    setInvalid(key, resolved, true);
+                  },
+                  (rejected: any) => {
+                    // there is something changed since last time
+                    if (value !== data[key]) return;
+                    setInvalid(key, rejected, true);
+                  }
+                );
+              } else {
+                setInvalid(key, result, true);
+              }
+            } catch (e) {
+              setInvalid(key, e, true);
+            }
+          });
           if (updatingJobs) return;
           notifyChange();
         },

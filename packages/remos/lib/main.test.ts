@@ -446,3 +446,21 @@ test("oop: abstraction", () => {
   casio.sum();
   expect(casioPrint).toBeCalledWith(4);
 });
+
+test("$invalid", () => {
+  const model = create({
+    value: 0,
+    validateValue() {
+      if (this.value < -10) throw new Error();
+      of(this).$invalid("value", this.value < 0);
+    },
+  });
+
+  expect(model.$invalid("value")).toBeUndefined();
+  model.value = -1;
+  expect(model.$invalid("value")).toBeTruthy();
+  model.value = 0;
+  expect(model.$invalid("value")).toBeUndefined();
+  model.value = -11;
+  expect(model.$invalid("value")).toBeInstanceOf(Error);
+});
