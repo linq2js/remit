@@ -63,9 +63,6 @@ interface Async {
 }
 
 const typeProp = "$$type";
-const dataProp = "$data";
-const modelProp = "$model";
-const propsProp = "$props";
 const familyProp = "$family";
 
 interface Base<TProps extends {}> {
@@ -143,10 +140,10 @@ interface ModelApi<TProps extends {} = {}>
   extends Listenable<TProps>,
     Watchable<TProps>,
     Slicable<TProps> {
-  readonly [modelProp]: Model<TProps>;
-  readonly [propsProp]: TProps;
-
-  [dataProp](): Data<TProps>;
+  readonly $model: Model<TProps>;
+  readonly $props: TProps;
+  $dirty(): boolean;
+  $data(): Data<TProps>;
   $init(): this;
   /**
    * clone to new model
@@ -603,7 +600,8 @@ const create: Create = (...args: any[]): any => {
   if (!props) throw new Error("Invalid model props");
 
   let updatingJobs = 0;
-  let changeToken = {};
+  const initialToken = {};
+  let changeToken = initialToken;
 
   let initialized = false;
   let api: InternalModelApi;
@@ -628,7 +626,7 @@ const create: Create = (...args: any[]): any => {
     observers.forEach((o) => o(type, value));
   }
 
-  function assign(props: any) {
+  function assign(props: any, target: any = model) {
     if (props === model) return;
 
     Object.keys(props).forEach((key) => {
@@ -638,14 +636,14 @@ const create: Create = (...args: any[]): any => {
         key[0] === "$" ||
         typeof value === "function" ||
         // not exist key
-        !(key in model)
+        !(key in target)
       ) {
         return;
       }
-      if (isModel(model[key])) {
-        model[key].$merge(value);
+      if (isModel(target[key])) {
+        target[key].$merge(value);
       } else {
-        model[key] = value;
+        target[key] = value;
       }
     });
   }
@@ -685,11 +683,13 @@ const create: Create = (...args: any[]): any => {
 
   api = {
     [typeProp]: () => modelType,
-    [propsProp]: props,
-    [dataProp]: () => data,
+
     ...createListenable(modelGetter, emitter, init),
     ...createWatchable(modelGetter),
     ...createSlicable(modelGetter),
+    $props: props,
+    $dirty: () => changeToken !== initialToken,
+    $data: () => data,
     $$initMember(key: any, family: Map<any, Model>) {
       let removed = false;
       Object.assign(model as MemberModel, {
@@ -707,7 +707,7 @@ const create: Create = (...args: any[]): any => {
         },
       });
     },
-    get [modelProp](): any {
+    get $model(): any {
       if (isCreating && model) {
         throw new Error(
           "Model is not ready. It seems you are trying to access the $model inside injector"
@@ -830,13 +830,15 @@ const create: Create = (...args: any[]): any => {
     },
     $reset(hardReset) {
       call(() => {
+        changeToken = initialToken;
         cache.clear();
         if (hardReset) {
           family.clear();
           emitter.clear();
         }
-        assign(props);
+        assign(props, data);
         initialized = false;
+        notifyChange();
       });
     },
     $merge(props: any, lazy?: boolean) {
