@@ -60,14 +60,34 @@ interface AsyncModel<TData = any, TError = any> {
   data: TData;
   error: TError;
   loading: boolean;
+  /**
+   *
+   * @param loader
+   * @param timeout
+   */
   load(
     loader: (cancellable: AsyncModelLoadContext) => Promise<TData>,
     timeout?: number
   ): CancellablePromise<TData>;
+  /**
+   * lifecycle
+   */
   onLoad(): void;
+  /**
+   * lifecycle
+   */
   onSuccess(): void;
+  /**
+   * lifecycle
+   */
   onError(): void;
+  /**
+   * lifecycle
+   */
   onDone(): void;
+  /**
+   * lifecycle
+   */
   cancel(): void;
 }
 interface Async {
