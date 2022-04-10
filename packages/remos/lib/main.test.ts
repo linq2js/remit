@@ -391,3 +391,60 @@ test("individual prop change event", () => {
   model.b++;
   expect(logs).toEqual(["a", "b"]);
 });
+
+test("oop: polymorphism", () => {
+  const student = {
+    study() {},
+  };
+  const writter = {
+    write() {},
+  };
+  const player = {
+    play() {},
+  };
+  const bill = create({
+    ...student,
+    ...writter,
+    ...player,
+  });
+
+  expect(bill.play).toBeInstanceOf(Function);
+  expect(bill.study).toBeInstanceOf(Function);
+  expect(bill.write).toBeInstanceOf(Function);
+});
+
+test("oop: abstraction", () => {
+  const computerPrint = jest.fn();
+  const casioPrint = jest.fn();
+  const calculator = {
+    a: 0,
+    b: 0,
+    print(_: any) {
+      throw new Error("Not implemented yet");
+    },
+    sum() {
+      const result = this.a + this.b;
+      this.print(result);
+    },
+  };
+
+  const computer = create({
+    ...calculator,
+    print: computerPrint,
+  });
+
+  const casio = create({
+    ...calculator,
+    print: casioPrint,
+  });
+
+  computer.a = 1;
+  computer.b = 2;
+  computer.sum();
+  expect(computerPrint).toBeCalledWith(3);
+
+  casio.a = 2;
+  casio.b = 2;
+  casio.sum();
+  expect(casioPrint).toBeCalledWith(4);
+});

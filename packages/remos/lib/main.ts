@@ -1027,6 +1027,24 @@ const create: Create = (...args: any[]): any => {
   return model;
 };
 
+class AbstractMethodError extends Error {
+  constructor(name?: string) {
+    super(
+      `${
+        name ? "The method " + name : "This method"
+      } is abstract and it has not been implemented yet`
+    );
+  }
+}
+
+const abstract = <TResult = void, TArgs extends any[] = []>(
+  name?: string
+): ((...args: TArgs) => TResult) => {
+  return (() => {
+    throw new AbstractMethodError(name);
+  }) as any;
+};
+
 const useModel: UseModel = (...args: any[]): any => {
   const modelRef = React.useRef<Model>();
   const rerender = React.useState<any>()[1];
@@ -1383,4 +1401,5 @@ export {
   once,
   droppable,
   sequential,
+  abstract,
 };
