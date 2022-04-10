@@ -142,8 +142,15 @@ interface ModelApi<TProps extends {} = {}>
     Slicable<TProps> {
   readonly $model: Model<TProps>;
   readonly $props: TProps;
+  /**
+   * indicate the model is whether dirty or not
+   */
   $dirty(): boolean;
   $data(): Data<TProps>;
+
+  /**
+   * force run init lifecycle. By default, the model runs init lifecycle at first access
+   */
   $init(): this;
   /**
    * clone to new model
