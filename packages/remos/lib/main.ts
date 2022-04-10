@@ -250,6 +250,8 @@ interface ModelApi<TProps extends {} = {}>
 
   $memo<TResult>(fn: () => TResult, deps?: any[]): TResult;
 
+  $silent(): VoidFunction;
+
   $lock(): VoidFunction;
 
   toJSON(): TProps;
@@ -615,6 +617,7 @@ const create: Create = (...args: any[]): any => {
   let api: InternalModelApi;
   let isCreating = true;
   let invokingMethodName: string | undefined;
+  let slientRequests = 0;
   let lockers = 0;
   let touched = new Set<string>();
   const emitter = createEmitter();
@@ -636,7 +639,7 @@ const create: Create = (...args: any[]): any => {
   }
 
   function assign(props: any, target: any = model) {
-    if (props === model) return;
+    if (props === model || lockers) return;
 
     Object.keys(props).forEach((key) => {
       const value = props[key];
@@ -741,18 +744,26 @@ const create: Create = (...args: any[]): any => {
 
     toJSON: () => data,
 
-    $lock() {
+    $silent() {
       let active = true;
       const token = changeToken;
-      lockers++;
+      slientRequests++;
       return () => {
         if (!active) return;
-        lockers--;
-        if (!lockers) {
+        slientRequests--;
+        if (!slientRequests) {
           if (token !== changeToken) {
             notifyChange();
           }
         }
+      };
+    },
+    $lock() {
+      let active = true;
+      lockers++;
+      return () => {
+        if (!active) return;
+        lockers--;
       };
     },
     $sync(models, selector, mode) {
@@ -993,12 +1004,15 @@ const create: Create = (...args: any[]): any => {
           return data[key];
         },
         set: (value: any) => {
+          if (lockers) return;
           init();
           emit("write", key);
           if (value === data[key]) return;
           data[key] = value;
           touched.add(key);
           changeToken = {};
+          // trigger individual prop change event
+          model["on" + key[0].toUpperCase() + key.slice(1) + "Change"]?.();
           if (updatingJobs) return;
           notifyChange();
         },

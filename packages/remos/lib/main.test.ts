@@ -372,3 +372,22 @@ test("sync: (error)", async () => {
   await delay(15);
   expect(() => sync(model)).toThrow("invalid");
 });
+
+test("individual prop change event", () => {
+  const logs: string[] = [];
+  const model = create({
+    a: 1,
+    b: 2,
+    onAChange() {
+      logs.push("a");
+    },
+    onBChange() {
+      logs.push("b");
+    },
+  });
+  expect(logs).toEqual([]);
+  model.a++;
+  expect(logs).toEqual(["a"]);
+  model.b++;
+  expect(logs).toEqual(["a", "b"]);
+});

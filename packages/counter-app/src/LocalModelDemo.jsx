@@ -2,7 +2,7 @@ import { useModel } from "remos";
 
 const notEmpty = (x) => !!x;
 
-const FormField = ({ model, field, rule, message }) => {
+const Field = ({ model, field, rule, message }) => {
   const value = useModel(model, (x) => x[field]);
   return (
     <div>
@@ -19,31 +19,27 @@ const FormField = ({ model, field, rule, message }) => {
   );
 };
 
-const LoginForm = () => {
+const Form = () => {
   // create a local model with specified props and their initial values
   const model = useModel({ username: "", password: "" });
+  const handleClick = () =>
+    alert(`${model.username || "--"} / ${model.password || "--"}`);
   return (
     <>
       <h1>Login</h1>
-      <FormField
+      <Field
         model={model}
         field="username"
         rule={notEmpty}
         message="Username cannot be empty"
       />
-      <FormField
+      <Field
         model={model}
         field="password"
         rule={notEmpty}
         message="Password cannot be empty"
       />
-      <button
-        onClick={() =>
-          alert(`${model.username || "--"} / ${model.password || "--"}`)
-        }
-      >
-        Submit
-      </button>
+      <button onClick={handleClick}>Submit</button>
     </>
   );
 };
@@ -51,7 +47,7 @@ const LoginForm = () => {
 export default function App() {
   return (
     <div className="App">
-      <LoginForm />
+      <Form />
     </div>
   );
 }
