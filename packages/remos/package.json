@@ -11,12 +11,19 @@
   "main": "dist/tsc/main.js",
   "types": "dist/tsc/main.d.ts",
   "directories": {
-    "lib": "lib",
-    "test": "__tests__"
+    "lib": "lib"
   },
   "files": [
     "lib",
     "dist/tsc"
+  ],
+  "keywords": [
+    "redux",
+    "oop",
+    "model",
+    "state",
+    "state management",
+    "react"
   ],
   "peerDependencies": {
     "react": "^18.0.0",

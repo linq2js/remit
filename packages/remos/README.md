@@ -1,6 +1,6 @@
 # remos
 
-React Model Oriented Store
+(RE)act (M)odel (O)riented (S)tore
 
 ## Installation
 
