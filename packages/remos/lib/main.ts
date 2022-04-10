@@ -184,8 +184,9 @@ interface ModelApi<TProps extends {} = {}>
 
   /**
    * Reset all props of the model to initial values
+   * if hardReset = true, all listeners will be removed
    */
-  $reset(): void;
+  $reset(hardReset?: boolean): void;
 
   /**
    * call the method using model as method context
@@ -827,11 +828,13 @@ const create: Create = (...args: any[]): any => {
       });
       return Object.assign(promise, { cancel: () => cancel?.() });
     },
-    $reset() {
+    $reset(hardReset) {
       call(() => {
-        family.clear();
         cache.clear();
-        emitter.clear();
+        if (hardReset) {
+          family.clear();
+          emitter.clear();
+        }
         assign(props);
         initialized = false;
       });
