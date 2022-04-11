@@ -61,9 +61,9 @@ const counterModel = create({
 counterModel.count++;
 ```
 
-## Lifecycle methods
+## Magic methods
 
-You can define lifecycle methods to handle some special events of the model
+You can define magic methods to handle some special events of the model
 
 ```js
 const model = create({
@@ -96,6 +96,9 @@ const model = create({
     //  [this.firstName, this.lastName] // this is dependency list, the memo does re-evaluation when the dep values are changed only
     // );
   },
+  // if you dont define custom setter for specified prop,
+  // that prop become readsonly
+  // _setFullName(value: string) {}
 });
 ```
 
