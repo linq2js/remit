@@ -667,6 +667,10 @@ function createSlice<TProps, TResult>(
   return slice as any;
 }
 
+function pascalCase(value: string) {
+  return value[0].toUpperCase() + value.slice(1);
+}
+
 /**
  * create a model with specified props
  * @param props
@@ -822,7 +826,7 @@ const create: Create = (...args: any[]): any => {
     postfix: string,
     invoker?: (method: Function) => T
   ) {
-    const methodName = prefix + name[0].toUpperCase() + name.slice(1) + postfix;
+    const methodName = prefix + pascalCase(name) + postfix;
     const method = model[methodName];
     if (typeof method === "function") {
       if (invoker) {
@@ -1268,8 +1272,10 @@ const create: Create = (...args: any[]): any => {
         },
       });
     } else {
-      const getterKey = "_get" + key[0].toUpperCase() + key.slice(1);
+      const getterKey = "_get" + pascalCase(key);
+      const setterKey = "_set" + pascalCase(key);
       const hasGetter = typeof props[getterKey] === "function";
+      const hasSetter = typeof props[setterKey] === "function";
       // public prop
       Object.defineProperty(model, key, {
         enumerable: true,
@@ -1279,12 +1285,15 @@ const create: Create = (...args: any[]): any => {
           return hasGetter ? model[getterKey]() : data[key];
         },
         set: (value: any) => {
-          if (hasGetter) {
+          if (hasGetter && !hasSetter) {
             throw new Error(`The prop ${key} is readonly`);
           }
           if (lockers) return;
           init();
           emit({ type: "write", key, value });
+          if (hasSetter) {
+            return model[setterKey](value);
+          }
           if (value === data[key]) return;
           data[key] = value;
           touched.add(key);

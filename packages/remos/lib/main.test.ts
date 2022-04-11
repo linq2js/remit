@@ -494,8 +494,15 @@ test("custom getter", () => {
     a: 1,
     b: 2,
     sum: 0,
+    temp: 0,
     _getSum() {
       return this.a + this.b;
+    },
+    _getTemp() {
+      return 1;
+    },
+    _setTemp() {
+      throw new Error("temp");
     },
   });
 
@@ -503,4 +510,6 @@ test("custom getter", () => {
   model.a++;
   expect(model.sum).toBe(4);
   expect(() => (model.sum = 1)).toThrowError("The prop sum is readonly");
+  expect(model.temp).toBe(1);
+  expect(() => (model.temp = 2)).toThrowError("temp");
 });
