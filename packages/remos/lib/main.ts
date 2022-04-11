@@ -85,7 +85,7 @@ interface Sync {
 }
 
 interface AsyncModelLoadContext extends Cancellable {
-  singal: any;
+  signal: any;
 }
 
 interface Loadable<TData = any> {

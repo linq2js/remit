@@ -228,6 +228,7 @@ const App = () => {
 4. [Family Model](https://codesandbox.io/s/remos-family-b0yfnu)
 5. [Local Model](https://codesandbox.io/s/local-model-fnso1b)
 6. [Hacker News](https://codesandbox.io/s/remos-hacker-news-3m6t29)
+7. [Search Box](https://codesandbox.io/s/remos-search-box-e8lz3p)
 
 ## Addons
 
