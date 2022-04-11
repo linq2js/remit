@@ -1279,6 +1279,9 @@ const create: Create = (...args: any[]): any => {
           return hasGetter ? model[getterKey]() : data[key];
         },
         set: (value: any) => {
+          if (hasGetter) {
+            throw new Error(`The prop ${key} is readonly`);
+          }
           if (lockers) return;
           init();
           emit({ type: "write", key, value });
