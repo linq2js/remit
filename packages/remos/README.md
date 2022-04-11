@@ -87,6 +87,15 @@ const model = create({
   // this method will be called after onChange() call,
   // you can put the validation logic for whole model here
   _validateAll() {},
+  // this is custom getter for fullName
+  _getFullName() {
+    return `${this.firstName} ${this.lastName}`;
+    // if you have complex computation, you can use $memo to cache the result
+    // return this.$memo(
+    //  () => // do complex computation,
+    //  [this.firstName, this.lastName] // this is dependency list, the memo does re-evaluation when the dep values are changed only
+    // );
+  },
 });
 ```
 
