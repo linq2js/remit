@@ -502,4 +502,5 @@ test("custom getter", () => {
   expect(model.sum).toBe(3);
   model.a++;
   expect(model.sum).toBe(4);
+  expect(() => (model.sum = 1)).toThrowError("The prop sum is readonly");
 });
