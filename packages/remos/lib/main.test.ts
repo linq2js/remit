@@ -464,3 +464,18 @@ test("$invalid", () => {
   model.value = -11;
   expect(model.$invalid("value")).toBeInstanceOf(Error);
 });
+
+test("custom getter", () => {
+  const model = create({
+    a: 1,
+    b: 2,
+    sum: 0,
+    _getSum() {
+      return this.a + this.b;
+    },
+  });
+
+  expect(model.sum).toBe(3);
+  model.a++;
+  expect(model.sum).toBe(4);
+});

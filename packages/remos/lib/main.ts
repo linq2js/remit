@@ -88,15 +88,14 @@ interface AsyncModelLoadContext extends Cancellable {
   singal: any;
 }
 
-interface Loadable<TData = any, TError = any> {
+interface Loadable<TData = any> {
   data: TData;
-  error: TError;
+  error: any;
   loading: boolean;
   promise: CancellablePromise<TData> | undefined;
 }
 
-interface AsyncModel<TData = any, TError = any>
-  extends Loadable<TData, TError> {
+interface AsyncModel<TData = any> extends Loadable<TData> {
   /**
    *
    * @param loader
@@ -133,12 +132,9 @@ interface AsyncModel<TData = any, TError = any>
    */
   update(next: TData, prev: TData): TData;
 }
+
 interface Async {
-  <TData = any, TError = any>(): AsyncModel<TData, TError>;
-  <TData = any, TError = any>(options: { initial: TData }): AsyncModel<
-    TData,
-    TError
-  >;
+  <TData = any>(): AsyncModel<TData>;
 }
 
 interface Cancellable {
@@ -1272,13 +1268,15 @@ const create: Create = (...args: any[]): any => {
         },
       });
     } else {
+      const getterKey = "_get" + key[0].toUpperCase() + key.slice(1);
+      const hasGetter = typeof props[getterKey] === "function";
       // public prop
       Object.defineProperty(model, key, {
         enumerable: true,
         get: () => {
           init();
           emit({ type: "read", key });
-          return data[key];
+          return hasGetter ? model[getterKey]() : data[key];
         },
         set: (value: any) => {
           if (lockers) return;
