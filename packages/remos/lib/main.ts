@@ -29,7 +29,8 @@ type ObserverArgs =
   | ReadDataArgs
   | WriteDataArgs;
 
-type ActivityFilter =
+type ActivityFilter<TProp = {}> =
+  | keyof TProp
   | Omit<MethodCallArgs, "args">
   | Omit<MemberRemoveArgs, "model">
   | ReadDataArgs
@@ -359,11 +360,11 @@ interface ModelApi<TProps extends {} = {}>
 
   $observe(observer: Observer): VoidFunction;
 
-  $when(observer: Observer): CancellablePromise<ObserverArgs>;
-
   $when(
-    filter: ActivityFilter | ActivityFilter[]
+    filter: ActivityFilter<TProps> | ActivityFilter<TProps>[]
   ): CancellablePromise<ObserverArgs>;
+
+  $when(observer: Observer): CancellablePromise<ObserverArgs>;
 
   $wrap(wrapper: Wrapper): this;
 
@@ -1041,6 +1042,12 @@ const create: Create = (...args: any[]): any => {
             observer = (o) => {
               if (
                 filter.some((x) => {
+                  if (typeof x === "string") {
+                    if (o.type === "call" && o.method === x) return true;
+                    if (o.type === "write" && o.key === x) return true;
+                    return false;
+                  }
+
                   if (
                     x.type === "call" &&
                     o.type === "call" &&

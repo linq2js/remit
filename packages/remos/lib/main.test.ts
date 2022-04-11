@@ -528,3 +528,19 @@ test("custom getter", () => {
   expect(model.temp).toBe(1);
   expect(() => (model.temp = 2)).toThrowError("temp");
 });
+
+test("$when", async () => {
+  const logs: string[] = [];
+  const model = create({
+    count: 0,
+    increase() {
+      this.count++;
+    },
+  });
+  model.$when("count").then(() => logs.push("count"));
+  model.$when("increase").then(() => logs.push("increase"));
+  expect(logs).toEqual([]);
+  model.increase();
+  await delay();
+  expect(logs).toEqual(["increase", "count"]);
+});
