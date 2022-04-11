@@ -10,6 +10,7 @@
   "license": "ISC",
   "main": "dist/tsc/main.js",
   "types": "dist/tsc/main.d.ts",
+  "type": "module",
   "directories": {
     "lib": "lib"
   },
