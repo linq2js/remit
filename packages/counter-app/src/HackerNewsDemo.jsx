@@ -14,7 +14,7 @@ const $topStories = create({
   total: 0,
   size: 10,
   items: [],
-  onInit() {
+  _onInit() {
     this.load(loadTopStories);
   },
   onSuccess() {
@@ -43,7 +43,7 @@ const $story = create(
   {
     ...async(),
     id: 0,
-    onInit() {
+    _onInit() {
       if (!this.id) return;
       this.load(storyLoader(this.id));
     },

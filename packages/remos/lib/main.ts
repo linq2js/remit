@@ -727,8 +727,8 @@ const create: Create = (...args: any[]): any => {
   const wrappers: Wrapper[] = [];
   const invalid = new Map<string, any>();
   const notifyChange = () => {
-    model.onChange?.();
-    model.validateAll?.();
+    model._onChange?.();
+    model._validateAll?.();
     changeEmitter.emit();
   };
 
@@ -863,7 +863,7 @@ const create: Create = (...args: any[]): any => {
   function init() {
     if (initialized || isCreating) return;
     initialized = true;
-    model.onInit?.();
+    model._onInit?.();
   }
 
   const modelGetter = () => model;
@@ -1287,8 +1287,8 @@ const create: Create = (...args: any[]): any => {
           touched.add(key);
           changeToken = {};
           // trigger individual prop change event
-          virtualMethod("on", key, "Change");
-          virtualMethod("validate", key, "", (m) => {
+          virtualMethod("_on", key, "Change");
+          virtualMethod("_validate", key, "", (m) => {
             try {
               const result = m();
               if (typeof result?.then === "function") {

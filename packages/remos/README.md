@@ -69,15 +69,16 @@ You can define lifecycle methods to handle some special events of the model
 const model = create({
   firstName: "",
   lastName: "",
+  fullName: "",
   // this method will be called when the model has first access (get, set, listen)
-  onInit() {},
+  _onInit() {},
   // this method will be called whenever the model's props are changed
-  onChange() {},
+  _onChange() {},
   // this method will be called when firstName prop changed
   // that means you can define onXXXChange() to handle changing event of other props
-  onFirstNameChange() {},
+  _onFirstNameChange() {},
   // this method will be called to validate the firstName prop
-  validateFirstName() {
+  _validateFirstName() {
     // returning true to mark the firstName prop is VALID
     // returning false to mark the firstName prop is INALID
     // throwing an error to mark the firstName prop is INVALID
@@ -85,7 +86,7 @@ const model = create({
   },
   // this method will be called after onChange() call,
   // you can put the validation logic for whole model here
-  validateAll() {},
+  _validateAll() {},
 });
 ```
 

@@ -16,8 +16,8 @@ const $userList = create({
   // async logic provides common props/methods for async data loading:
   // data, loading, error, load(), cancel()
   ...async(),
-  // using onInit lifecycle to handle first access event
-  onInit() {
+  // using _onInit lifecycle to handle first access event
+  _onInit() {
     this.load(userListLoader);
   },
 });
@@ -31,7 +31,7 @@ const $userInfo = create(
     ...async(),
     id: 0,
     // this logic runs once for each family member
-    onInit() {
+    _onInit() {
       if (!this.id) return;
       this.load(userInfoLoader(this.id));
     },

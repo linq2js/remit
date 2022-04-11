@@ -16,8 +16,8 @@ const $userList = create({
   // async logic provides common props/methods for async data loading:
   // data, loading, error, load(), cancel()
   ...async(),
-  // using onInit lifecycle to handle first access event
-  onInit() {
+  // using _onInit lifecycle to handle first access event
+  _onInit() {
     this.load(userListLoader);
   },
 });

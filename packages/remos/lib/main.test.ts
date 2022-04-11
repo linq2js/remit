@@ -79,7 +79,7 @@ test("$sync", () => {
   const b = create({ value: 2 });
   const sum = create({
     result: 0,
-    onInit() {
+    _onInit() {
       of(this).$sync({ a, b }, ({ a, b }) => ({ result: a.value + b.value }));
     },
   });
@@ -138,11 +138,11 @@ test("$data: should not contain any method or sepcial props (start with $)", () 
   expect(model.$data()).toEqual({ count: 1 });
 });
 
-test("onInit", () => {
+test("_onInit", () => {
   let initialized = false;
   const model = create({
     count: 1,
-    onInit() {
+    _onInit() {
       initialized = true;
     },
   });
@@ -152,28 +152,13 @@ test("onInit", () => {
   expect(initialized).toBe(true);
 });
 
-test("family: should ignore onCreate lifecycle if model is family", () => {
-  const root = create(
-    {
-      key: 0,
-      count: 1,
-      onCreate() {
-        this.count++;
-      },
-    },
-    "key"
-  );
-
-  expect(root.count).toBe(1);
-});
-
 test("family: key is primitive type", () => {
   const root = create(
     {
       key: 0,
       count: 1,
       other: "",
-      onInit() {
+      _onInit() {
         this.count += this.key;
       },
     },
@@ -274,7 +259,7 @@ test("memo", () => {
 test("asyncModel", async () => {
   const model = create({
     ...async(),
-    onInit() {
+    _onInit() {
       this.load(() => delay(10).then(() => 1));
     },
   });
@@ -323,7 +308,7 @@ test("$slice", () => {
 test("sync: with default value (success)", async () => {
   const model = create({
     ...async<number>(),
-    onInit() {
+    _onInit() {
       this.load(() => delay(10).then(() => 1));
     },
   });
@@ -336,7 +321,7 @@ test("sync: with default value (success)", async () => {
 test("sync: with default value (error)", async () => {
   const model = create({
     ...async<number>(),
-    onInit() {
+    _onInit() {
       this.load(() =>
         delay(10).then(() => {
           throw new Error();
@@ -353,7 +338,7 @@ test("sync: with default value (error)", async () => {
 test("sync: (error)", async () => {
   const model = create({
     ...async<number>(),
-    onInit() {
+    _onInit() {
       this.load(() =>
         delay(10).then(() => {
           throw new Error("invalid");
@@ -378,10 +363,10 @@ test("individual prop change event", () => {
   const model = create({
     a: 1,
     b: 2,
-    onAChange() {
+    _onAChange() {
       logs.push("a");
     },
-    onBChange() {
+    _onBChange() {
       logs.push("b");
     },
   });
@@ -447,10 +432,49 @@ test("oop: abstraction", () => {
   expect(casioPrint).toBeCalledWith(4);
 });
 
+test("lifecycle", () => {
+  const logs = new Array<string>();
+  const model = create({
+    count: 1,
+    double: 0,
+    _onInit() {
+      logs.push("init");
+    },
+    _onCountChange() {
+      logs.push("countChange");
+    },
+    _validateCount() {
+      logs.push("validateCount");
+    },
+    _onChange() {
+      logs.push("change");
+    },
+    _validateAll() {
+      logs.push("validateAll");
+    },
+    _getDouble() {
+      return this.count * 2;
+    },
+  });
+
+  model.count;
+  expect(logs).toEqual(["init"]);
+  expect(model.double).toBe(2);
+  model.count++;
+  expect(model.double).toBe(4);
+  expect(logs).toEqual([
+    "init",
+    "countChange",
+    "validateCount",
+    "change",
+    "validateAll",
+  ]);
+});
+
 test("$invalid", () => {
   const model = create({
     value: 0,
-    validateValue() {
+    _validateValue() {
       if (this.value < -10) throw new Error();
       of(this).$invalid("value", this.value < 0);
     },
