@@ -95,7 +95,8 @@ interface Loadable<TData = any> {
   promise: CancellablePromise<TData> | undefined;
 }
 
-interface AsyncModel<TData = any> extends Loadable<TData> {
+interface AsyncModel<TData = any, TParams extends any[] = any[]>
+  extends Loadable<TData> {
   /**
    *
    * @param loader
@@ -131,10 +132,23 @@ interface AsyncModel<TData = any> extends Loadable<TData> {
    * @param prev
    */
   update(next: TData, prev: TData): TData;
+
+  params: TParams;
+
+  _onInit(): void;
+
+  _onParamsChange(): void;
 }
 
 interface Async {
   <TData = any>(): AsyncModel<TData>;
+  <TData = any, TParams extends any[] = any[]>(
+    loader: (
+      context: AsyncModelLoadContext,
+      ...args: TParams
+    ) => Promise<TData>,
+    ...initialParams: TParams
+  ): AsyncModel<TData>;
 }
 
 interface Cancellable {
@@ -146,6 +160,7 @@ interface CancellablePromise<T = any> extends Promise<T>, Cancellable {}
 
 const typeProp = "$$type";
 const familyProp = "$family";
+const noop = () => {};
 
 interface Base<TProps extends {}> {
   /**
@@ -1636,12 +1651,16 @@ const sync: Sync = (model: Loadable, ...args: any[]) => {
   return model.data;
 };
 
-const async: Async = (options?: any): AsyncModel => {
-  return {
-    data: options?.initial,
+const async: Async = (
+  loader?: Function,
+  ...initialParams: any[]
+): AsyncModel => {
+  const model: AsyncModel = {
+    data: undefined,
     loading: false,
     error: undefined,
     promise: undefined,
+    params: initialParams,
     update(next) {
       return next;
     },
@@ -1677,7 +1696,8 @@ const async: Async = (options?: any): AsyncModel => {
       const promise: CancellablePromise = Object.assign(
         new Promise((resolve, reject) => {
           fn(
-            Object.assign(cancellable, { signal: abortController?.signal })
+            Object.assign(cancellable, { signal: abortController?.signal }),
+            ...this.params
           ).then(
             (data: any) => {
               if (token !== (this as any)._token) return;
@@ -1702,15 +1722,26 @@ const async: Async = (options?: any): AsyncModel => {
       );
 
       // handle rejection
-      promise.catch(() => {});
+      promise.catch(noop);
 
-      if (timer) {
+      // timeout enabled
+      if (timeout) {
         timer = setTimeout(cancellable.cancel, timeout);
       }
 
       return (this.promise = promise);
     },
+    _onInit() {
+      if (loader) {
+        this.load(loader as any);
+      }
+    },
+    _onParamsChange() {
+      this._onInit();
+    },
   };
+
+  return model;
 };
 
 export {

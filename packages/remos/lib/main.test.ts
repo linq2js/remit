@@ -269,6 +269,21 @@ test("asyncModel", async () => {
   expect(model.loading).toBeFalsy();
 });
 
+test("asyncModel: loader", async () => {
+  const model = create({
+    ...async((_, value: number) => delay(10).then(() => value), 1),
+  });
+  expect(model.loading).toBeTruthy();
+  await delay(15);
+  expect(model.data).toBe(1);
+  expect(model.loading).toBeFalsy();
+  model.params = [2];
+  expect(model.loading).toBeTruthy();
+  await delay(15);
+  expect(model.data).toBe(2);
+  expect(model.loading).toBeFalsy();
+});
+
 test("$slice", () => {
   const logs: string[] = [];
   const root = create({
