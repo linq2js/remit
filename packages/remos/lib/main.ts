@@ -1233,7 +1233,6 @@ const create: Create = (...args: any[]): any => {
       return memo.value;
     },
     $hydrate(hydratedData) {
-      if (touched.size) return;
       // is family
       if (familyKeyProp) {
         if (!Array.isArray(hydratedData)) {
@@ -1241,13 +1240,15 @@ const create: Create = (...args: any[]): any => {
         }
         familyHydratedData = new Map(hydratedData);
       } else {
+        const prevSize = touched.size;
         Object.entries(hydratedData).forEach(([key, value]) => {
+          if (touched.has(key)) return;
           if (data[key] === value) return;
           data[key] = value;
           touched.add(key);
         });
         // has change
-        if (touched.size) {
+        if (touched.size !== prevSize) {
           notifyChange();
         }
       }
