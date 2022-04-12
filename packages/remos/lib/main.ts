@@ -23,9 +23,7 @@ interface WriteDataArgs {
   value: any;
 }
 
-interface PropOptions {
-  mode?: ConcurrentMode;
-}
+type PropMeta = ConcurrentMode | { mode?: ConcurrentMode };
 
 type ObserverArgs =
   | MethodCallArgs
@@ -717,6 +715,10 @@ function pascalCase(value: string) {
   return value[0].toUpperCase() + value.slice(1);
 }
 
+function hasProp(name: string, obj: any) {
+  return name in obj || name[0].toLowerCase() + name.slice(1) in obj;
+}
+
 /**
  * create a model with specified props
  * @param props
@@ -1301,7 +1303,7 @@ const create: Create = (...args: any[]): any => {
   model = { ...api };
 
   const initialProps: any = { ...props };
-  const propOptions: Record<string, PropOptions> = {};
+  const propsMetas: Record<string, PropMeta> = {};
   const onCreates: VoidFunction[] = [];
   // injector must run before property bindings
   globalInjectors?.forEach((injector) => {
@@ -1313,11 +1315,28 @@ const create: Create = (...args: any[]): any => {
 
   Object.keys(initialProps).forEach((key) => {
     const value = initialProps[key];
+
+    if (key.startsWith("$meta")) {
+      Object.assign(propsMetas, value);
+      return;
+    }
+
     const firstChar = key[0];
 
-    // skip special props
-    if (firstChar === "$") {
-      return;
+    if (firstChar === "$") return;
+
+    if (process.env.NODE_ENV !== "production") {
+      if (firstChar === "_") {
+        if (key.startsWith("_get") || key.startsWith("_set")) {
+          if (!hasProp(key.slice(4), initialProps)) {
+            console.warn(`No prop is matched for setter/getter ${key}`);
+          }
+        } else if (key.startsWith("_on") && key.endsWith("Change")) {
+          if (!hasProp(key.slice(3, -6), initialProps)) {
+            console.warn(`No prop is matched for change handler ${key}`);
+          }
+        }
+      }
     }
 
     // method
@@ -1345,17 +1364,9 @@ const create: Create = (...args: any[]): any => {
       return;
     }
 
-    // is private
-    if (firstChar === "@") {
-      const normalizedKey = key.substring(1);
-      if (normalizedKey in initialProps) {
-        propOptions[normalizedKey] = value;
-      }
-      return;
-    }
-
     // private prop
     if (
+      firstChar === "_" ||
       firstChar === "#" ||
       firstChar === "!" ||
       firstChar === "~" ||
@@ -1437,9 +1448,20 @@ const create: Create = (...args: any[]): any => {
     data[key] = value;
   });
 
-  Object.keys(propOptions).forEach((key) => {
-    const options = propOptions[key];
+  Object.keys(propsMetas).forEach((key) => {
+    let options = propsMetas[key];
+
+    if (!(key in model)) {
+      console.warn(`No prop is matched for the ${key} meta`);
+      return;
+    }
+
+    if (typeof options === "function") {
+      options = { mode: options };
+    }
+
     const method = model[key];
+
     if (typeof method === "function") {
       if (options.mode) {
         model[key] = options.mode(method);

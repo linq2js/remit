@@ -10,8 +10,15 @@ import {
 } from "./main";
 import { delay } from "./testUtils";
 
+let consoleWarnMock: jest.SpyInstance | undefined;
+
 beforeEach(() => {
   inject([]);
+});
+
+afterEach(() => {
+  consoleWarnMock?.mockRestore();
+  consoleWarnMock = undefined;
 });
 
 test("$extend: with base accessor", () => {
@@ -585,12 +592,10 @@ test("$hydrate: touched", () => {
   expect(counter.count).toBe(1);
 });
 
-test("methodOptions", async () => {
+test("metas", async () => {
   const counter = create({
+    $meta: { increase: debounce(20) },
     count: 0,
-    "@increase": {
-      mode: debounce(20),
-    },
     increase() {
       this.count++;
     },
@@ -607,4 +612,21 @@ test("methodOptions", async () => {
   expect(counter.count).toBe(1);
   await delay(30);
   expect(counter.count).toBe(2);
+});
+
+test("warning", () => {
+  consoleWarnMock = jest.spyOn(console, "warn").mockImplementation();
+  const model = create({
+    $meta: { something: 0 },
+    _getSomething() {},
+    _setSomething() {},
+    _onSomethingChange() {},
+  });
+  model;
+  expect(consoleWarnMock.mock.calls).toEqual([
+    ["No prop is matched for setter/getter _getSomething"],
+    ["No prop is matched for setter/getter _setSomething"],
+    ["No prop is matched for change handler _onSomethingChange"],
+    ["No prop is matched for the something meta"],
+  ]);
 });
