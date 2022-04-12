@@ -53,5 +53,5 @@
     "esbuild-node:dev": "esbuild lib/cli.ts --bundle --platform=node --sourcemap=external --outfile=dist/esbuild/cli.js",
     "esbuild-node:watch": "esbuild lib/cli.ts --bundle --platform=node --watch --sourcemap=external --outfile=dist/esbuild/cli.js"
   },
-  "gitHead": "5cc9c6bfcca9d0d7bf2ba8237c859cc06576550d"
+  "gitHead": "32621a942d90ef236d6f8d72399df6d33b1b09d0"
 }

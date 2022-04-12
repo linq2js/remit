@@ -1331,7 +1331,11 @@ const create: Create = (...args: any[]): any => {
           if (!hasProp(key.slice(4), initialProps)) {
             console.warn(`No prop is matched for setter/getter ${key}`);
           }
-        } else if (key.startsWith("_on") && key.endsWith("Change")) {
+        } else if (
+          key !== "_onChange" &&
+          key.startsWith("_on") &&
+          key.endsWith("Change")
+        ) {
           if (!hasProp(key.slice(3, -6), initialProps)) {
             console.warn(`No prop is matched for change handler ${key}`);
           }
