@@ -27,8 +27,8 @@
     "immer"
   ],
   "peerDependencies": {
-    "immer": "^9.0.12",
-    "remos": "^0.0.8"
+    "immer": ">8.0.0",
+    "remos": ">0.0.8"
   },
   "scripts": {
     "prepublishOnly": "yarn test && yarn && yarn build",
