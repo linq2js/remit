@@ -78,7 +78,7 @@ const model = create({
   // that means you can define onXXXChange() to handle changing event of other props
   _onFirstNameChange() {},
   // this method will be called to validate the firstName prop
-  _validateFirstName() {
+  _valFirstName() {
     // returning true to mark the firstName prop is VALID
     // returning false to mark the firstName prop is INALID
     // throwing an error to mark the firstName prop is INVALID
@@ -86,7 +86,7 @@ const model = create({
   },
   // this method will be called after onChange() call,
   // you can put the validation logic for whole model here
-  _validateAll() {},
+  _valAll() {},
   // this is custom getter for fullName
   _getFullName() {
     return `${this.firstName} ${this.lastName}`;

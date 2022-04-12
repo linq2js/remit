@@ -112,7 +112,7 @@ interface AsyncModelLoadContext extends Cancellable {
 }
 
 interface Task<TData = any> {
-  data: TData;
+  data: TData | undefined;
   error: any;
   loading: boolean;
   promise: CancellablePromise<TData> | undefined;
@@ -126,7 +126,7 @@ interface AsyncModel<TData = any, TParams extends any[] = any[]>
    * @param timeout
    */
   load(
-    loader: (cancellable: AsyncModelLoadContext) => Promise<TData>,
+    loader?: (cancellable: AsyncModelLoadContext) => Promise<TData>,
     timeout?: number
   ): CancellablePromise<TData>;
   /**
@@ -363,10 +363,10 @@ interface ModelApi<TProps extends {} = {}>
   $sync<TModel extends {}>(
     model: TModel,
     selector: TModel extends Model<infer T>
-      ? (props: T) => Partial<TProps>
+      ? (props: T) => Partial<TProps> | void
       : (props: {
           [key in keyof TModel]: TModel[key];
-        }) => Partial<TProps>,
+        }) => Partial<TProps> | void,
     mode?: ConcurrentMode
   ): VoidFunction;
 
@@ -515,6 +515,8 @@ interface UseModelOptions<TProps extends {} = {}> {
 const effectHook = React.useEffect;
 const modelType = {};
 const enqueue = Promise.resolve().then.bind(Promise.resolve());
+const foreverPromise = new Promise(noop);
+const foreverLoader = () => foreverPromise;
 let globalInjectors: Injector[] | undefined;
 
 function strictCompare(a: any, b: any) {
@@ -783,7 +785,7 @@ const create: Create = (...args: any[]): any => {
   const invalid = new Map<string, any>();
   const notifyChange = () => {
     model._onChange?.();
-    model._validateAll?.();
+    model._valAll?.();
     changeEmitter.emit();
   };
 
@@ -1025,26 +1027,34 @@ const create: Create = (...args: any[]): any => {
         lockers--;
       };
     },
-    $sync(models, selector, mode) {
+    $sync(input, selector, mode) {
       familyMethod("$sync", false);
 
-      if (isModel(models)) {
-        const model = models as unknown as Model;
-        return model.$listen(() => {
+      let handleChange: VoidFunction;
+      const unsubscribes: VoidFunction[] = [];
+      const models: Model[] = [];
+
+      if (isModel(input)) {
+        const model = input as unknown as Model;
+        handleChange = () => {
           const update = selector(model as any);
-          assign(update);
-        });
+          update && assign(update);
+        };
+        models.push(model);
+      } else {
+        handleChange = () => {
+          const update = selector(input);
+          update && assign(update);
+        };
+        models.push(...(Object.values(input) as Model[]));
       }
-      const entries: any[] = Object.entries(models);
-      const handleChange = () => {
-        const update = selector(models);
-        assign(update);
-      };
 
-      const wrappedHandler = mode ? mode(handleChange) : handleChange;
+      const wrappedHandler = mode
+        ? (mode(handleChange) as VoidFunction)
+        : handleChange;
 
-      const unsubscribes: VoidFunction[] = entries.map(([, model]) =>
-        model.$listen(wrappedHandler)
+      unsubscribes.push(
+        ...models.map((model) => model.$listen(wrappedHandler))
       );
 
       // sync immediately
@@ -1339,6 +1349,10 @@ const create: Create = (...args: any[]): any => {
           if (!hasProp(key.slice(3, -6), initialProps)) {
             console.warn(`No prop is matched for change handler ${key}`);
           }
+        } else if (key !== "_valAll" && key.startsWith("_val")) {
+          if (!hasProp(key.slice(8), initialProps)) {
+            console.warn(`No prop is matched for validator ${key}`);
+          }
         }
       }
     }
@@ -1420,7 +1434,7 @@ const create: Create = (...args: any[]): any => {
           changeToken = {};
           // trigger individual prop change event
           virtualMethod("_on", key, "Change");
-          virtualMethod("_validate", key, "", (m) => {
+          virtualMethod("_val", key, "", (m) => {
             try {
               const result = m();
               if (typeof result?.then === "function") {
@@ -1858,7 +1872,7 @@ const async: Async = (
       this.promise = undefined;
       this.loading = false;
     },
-    load(fn: Function, timeout) {
+    load(fn: Function = foreverLoader, timeout) {
       this.loading = true;
       this.error = undefined;
       let timer: any;

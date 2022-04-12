@@ -488,13 +488,13 @@ test("lifecycle", () => {
     _onCountChange() {
       logs.push("countChange");
     },
-    _validateCount() {
+    _valCount() {
       logs.push("validateCount");
     },
     _onChange() {
       logs.push("change");
     },
-    _validateAll() {
+    _valAll() {
       logs.push("validateAll");
     },
     _getDouble() {
@@ -519,7 +519,7 @@ test("lifecycle", () => {
 test("$invalid", () => {
   const model = create({
     value: 0,
-    _validateValue() {
+    _valValue() {
       if (this.value < -10) throw new Error();
       of(this).$invalid("value", this.value < 0);
     },
@@ -621,12 +621,47 @@ test("warning", () => {
     _getSomething() {},
     _setSomething() {},
     _onSomethingChange() {},
+    _valSomething() {},
   });
   model;
   expect(consoleWarnMock.mock.calls).toEqual([
     ["No prop is matched for setter/getter _getSomething"],
     ["No prop is matched for setter/getter _setSomething"],
     ["No prop is matched for change handler _onSomethingChange"],
+    ["No prop is matched for validator _valSomething"],
     ["No prop is matched for the something meta"],
   ]);
+});
+
+test("chaining model", async () => {
+  const counter = create(async(() => delay(10).then(() => 1)));
+  const double = create({
+    ...async(),
+    count: 1,
+    _onInit() {
+      of(this).$sync(counter, (x) => {
+        console.log(x.data);
+        const count = x.data;
+        this.cancel();
+        if (count) {
+          this.load(() => delay(10).then(() => count * 2));
+        } else {
+          // load forever
+          this.load();
+        }
+      });
+    },
+  });
+
+  expect(counter.data).toBeUndefined();
+  expect(counter.loading).toBeTruthy();
+  expect(double.data).toBeUndefined();
+  expect(double.loading).toBeTruthy();
+  await delay(15);
+  // at this time, counter model is already loaded but the double model is still loading
+  expect(counter.data).toBe(1);
+  expect(double.loading).toBeTruthy();
+  await delay(15);
+  expect(double.data).toBe(2);
+  expect(double.loading).toBeFalsy();
 });
