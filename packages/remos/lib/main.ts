@@ -38,7 +38,7 @@ type ActivityFilter<TProp = {}> =
 
 type Observer = (args: ObserverArgs) => void;
 type Wrapper = (next: Function, model: Model) => Function;
-type Injector = (api: ModelApi, props: any) => void;
+type Injector = (api: ModelApi, props: any) => any;
 type Comparer<T = any> = "strict" | "shallow" | ((a: T, b: T) => boolean);
 type ConcurrentMode = () => (
   callback: Function,
@@ -1302,8 +1302,14 @@ const create: Create = (...args: any[]): any => {
   model = { ...api };
 
   const initialProps: any = { ...props };
+  const onCreates: VoidFunction[] = [];
   // injector must run before property bindings
-  globalInjectors?.forEach((injector) => injector(api, initialProps));
+  globalInjectors?.forEach((injector) => {
+    const result = injector(api, initialProps);
+    if (typeof result === "function") {
+      onCreates.push(result);
+    }
+  });
 
   Object.keys(initialProps).forEach((key) => {
     const value = initialProps[key];
@@ -1424,6 +1430,8 @@ const create: Create = (...args: any[]): any => {
   });
 
   isCreating = false;
+
+  onCreates.forEach((x) => x());
 
   return model;
 };
