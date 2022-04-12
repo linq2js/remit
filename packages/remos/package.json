@@ -26,8 +26,8 @@
     "react"
   ],
   "peerDependencies": {
-    "react": "^18.0.0",
-    "react-don": "^18.0.0"
+    "react": "^16.13.0",
+    "react-don": "^16.13.0"
   },
   "scripts": {
     "prepublishOnly": "yarn test && yarn && yarn build",

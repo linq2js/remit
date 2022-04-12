@@ -232,6 +232,7 @@ const App = () => {
 5. [Local Model](https://codesandbox.io/s/local-model-fnso1b)
 6. [Hacker News](https://codesandbox.io/s/remos-hacker-news-3m6t29)
 7. [Search Box](https://codesandbox.io/s/remos-search-box-e8lz3p)
+8. [Performance Test](https://codesandbox.io/s/remos-performance-9plx2i)
 
 ## Addons
 
