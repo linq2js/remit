@@ -1,4 +1,13 @@
-import { abstract, async, create, inject, Model, of, sync } from "./main";
+import {
+  abstract,
+  async,
+  create,
+  debounce,
+  inject,
+  Model,
+  of,
+  sync,
+} from "./main";
 import { delay } from "./testUtils";
 
 beforeEach(() => {
@@ -574,4 +583,28 @@ test("$hydrate: touched", () => {
   counter.count++;
   counter.$hydrate({ count: 2 });
   expect(counter.count).toBe(1);
+});
+
+test("methodOptions", async () => {
+  const counter = create({
+    count: 0,
+    "@increase": {
+      mode: debounce(20),
+    },
+    increase() {
+      this.count++;
+    },
+  });
+
+  expect(counter.count).toBe(0);
+  counter.increase();
+  expect(counter.count).toBe(0);
+  await delay(30);
+  expect(counter.count).toBe(1);
+  counter.increase();
+  counter.increase();
+  counter.increase();
+  expect(counter.count).toBe(1);
+  await delay(30);
+  expect(counter.count).toBe(2);
 });

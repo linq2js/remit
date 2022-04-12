@@ -23,6 +23,10 @@ interface WriteDataArgs {
   value: any;
 }
 
+interface PropOptions {
+  mode?: ConcurrentMode;
+}
+
 type ObserverArgs =
   | MethodCallArgs
   | MemberRemoveArgs
@@ -40,10 +44,7 @@ type Observer = (args: ObserverArgs) => void;
 type Wrapper = (next: Function, model: Model) => Function;
 type Injector = (api: ModelApi, props: any) => any;
 type Comparer<T = any> = "strict" | "shallow" | ((a: T, b: T) => boolean);
-type ConcurrentMode = () => (
-  callback: Function,
-  onCancel?: VoidFunction
-) => Function;
+type ConcurrentMode = (callback: Function, onCancel?: VoidFunction) => Function;
 
 type Data<T> = {
   [key in keyof T]: T[key] extends Function ? never : T[key];
@@ -616,9 +617,7 @@ function createWatchable<
       const context = getContext();
       let prev = selector(context);
       const cf = getCompareFunction(options?.compare);
-      const wrappedCallback = options.mode
-        ? options.mode()(callback)
-        : callback;
+      const wrappedCallback = options.mode ? options.mode(callback) : callback;
       return context.$listen(() => {
         const next = selector(context);
         if (!cf(prev, next)) {
@@ -1040,7 +1039,7 @@ const create: Create = (...args: any[]): any => {
         assign(update);
       };
 
-      const wrappedHandler = mode ? mode()(handleChange) : handleChange;
+      const wrappedHandler = mode ? mode(handleChange) : handleChange;
 
       const unsubscribes: VoidFunction[] = entries.map(([, model]) =>
         model.$listen(wrappedHandler)
@@ -1302,6 +1301,7 @@ const create: Create = (...args: any[]): any => {
   model = { ...api };
 
   const initialProps: any = { ...props };
+  const propOptions: Record<string, PropOptions> = {};
   const onCreates: VoidFunction[] = [];
   // injector must run before property bindings
   globalInjectors?.forEach((injector) => {
@@ -1313,9 +1313,10 @@ const create: Create = (...args: any[]): any => {
 
   Object.keys(initialProps).forEach((key) => {
     const value = initialProps[key];
+    const firstChar = key[0];
 
     // skip special props
-    if (key[0] === "$") {
+    if (firstChar === "$") {
       return;
     }
 
@@ -1344,16 +1345,23 @@ const create: Create = (...args: any[]): any => {
       return;
     }
 
+    // is private
+    if (firstChar === "@") {
+      const normalizedKey = key.substring(1);
+      if (normalizedKey in initialProps) {
+        propOptions[normalizedKey] = value;
+      }
+      return;
+    }
+
     // private prop
     if (
-      key[0] === "_" ||
-      key[0] === "#" ||
-      key[0] === "@" ||
-      key[0] === "!" ||
-      key[0] === "~" ||
-      key[0] === "&" ||
-      key[0] === "*" ||
-      key[0] === "%"
+      firstChar === "#" ||
+      firstChar === "!" ||
+      firstChar === "~" ||
+      firstChar === "&" ||
+      firstChar === "*" ||
+      firstChar === "%"
     ) {
       model[key] = value;
       return;
@@ -1427,6 +1435,16 @@ const create: Create = (...args: any[]): any => {
     }
 
     data[key] = value;
+  });
+
+  Object.keys(propOptions).forEach((key) => {
+    const options = propOptions[key];
+    const method = model[key];
+    if (typeof method === "function") {
+      if (options.mode) {
+        model[key] = options.mode(method);
+      }
+    }
   });
 
   isCreating = false;
@@ -1611,31 +1629,31 @@ function inject(injectors: Injector | Injector[]) {
 }
 
 function sequential(afterDone: boolean = false): ConcurrentMode {
-  let lastPromise: Promise<any> | undefined;
-  const resolved = Promise.resolve();
-
-  return () =>
-    (f) =>
-    (...args: any[]) => {
+  return (f) => {
+    let lastPromise: Promise<any> | undefined;
+    const resolved = Promise.resolve();
+    return function (this: any) {
       if (lastPromise) {
         if (afterDone) {
-          return (lastPromise = lastPromise.finally(() => f(...args)));
+          return (lastPromise = lastPromise.finally(() =>
+            f.apply(this, arguments)
+          ));
         }
-        return (lastPromise = lastPromise.then(() => f(...args)));
+        return (lastPromise = lastPromise.then(() => f.apply(this, arguments)));
       }
-      const result = f(...args);
+      const result = f.apply(this, arguments);
       if (typeof result?.then === "function") {
         return (lastPromise = result);
       }
       return resolved;
     };
+  };
 }
 
 function droppable(): ConcurrentMode {
-  let calling = false;
-  return () =>
-    (f, cancel) =>
-    (...args: any[]) => {
+  return (f, cancel) => {
+    let calling = false;
+    return function (this: any) {
       if (calling) {
         cancel?.();
         return;
@@ -1643,7 +1661,7 @@ function droppable(): ConcurrentMode {
       calling = true;
       let isAsync = false;
       try {
-        const result = f(...args);
+        const result = f.apply(this, arguments);
         if (typeof result?.then === "function") {
           isAsync = true;
           return result.finally(() => {
@@ -1656,19 +1674,20 @@ function droppable(): ConcurrentMode {
         }
       }
     };
+  };
 }
 
 function debounce(ms: number = 0): ConcurrentMode {
-  return () => (f, cancel) => {
+  return (f, cancel) => {
     let timer: any;
-    return (...args: any[]) => {
+    return function (this: any) {
       cancel?.();
       clearTimeout(timer);
       return Object.assign(
         new Promise((resolve, reject) => {
           timer = setTimeout(() => {
             try {
-              resolve(f(...args));
+              resolve(f.apply(this, arguments));
             } catch (e) {
               reject(e);
             }
@@ -1686,26 +1705,26 @@ function debounce(ms: number = 0): ConcurrentMode {
 }
 
 function once(): ConcurrentMode {
-  return () => (f) => {
+  return (f) => {
     let called = false;
     let lastResult: any;
-    return (...args: any[]) => {
+    return function (this: any) {
       if (called) return lastResult;
       called = true;
-      return (lastResult = f(...args));
+      return (lastResult = f.apply(this, arguments));
     };
   };
 }
 
 function throttle(ms: number): ConcurrentMode {
-  return () => (f) => {
+  return (f) => {
     let lastTime: number;
     let lastResult: any;
-    return (...args: any[]) => {
+    return function (this: any) {
       const now = Date.now();
       if (!lastTime || lastTime + ms < now) {
         lastTime = now;
-        lastResult = f(...args);
+        lastResult = f.apply(this, arguments);
       }
       return lastResult;
     };
