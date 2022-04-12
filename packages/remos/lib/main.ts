@@ -40,7 +40,10 @@ type Observer = (args: ObserverArgs) => void;
 type Wrapper = (next: Function, model: Model) => Function;
 type Injector = (api: ModelApi, props: any) => void;
 type Comparer<T = any> = "strict" | "shallow" | ((a: T, b: T) => boolean);
-type ConcurrentMode = (callback: Function) => Function;
+type ConcurrentMode = () => (
+  callback: Function,
+  onCancel?: VoidFunction
+) => Function;
 
 type Data<T> = {
   [key in keyof T]: T[key] extends Function ? never : T[key];
@@ -66,8 +69,10 @@ type MemberModel<T extends {} = {}, TKey = any> = Model<T> & {
   $remove(): void;
 };
 
-type FamilyModel<T extends {} = {}, TKey = any> = Model<T> & {
-  [familyProp](key: TKey): MemberModel<T, TKey>;
+type FamilyModel<TProps extends {} = {}, TKey = any> = Model<TProps> & {
+  [familyProp](key: TKey): MemberModel<TProps, TKey>;
+  $data(): [any, any][];
+  $hydrate(data: [any, TProps][]): void;
 };
 
 interface CacheItem {
@@ -77,10 +82,28 @@ interface CacheItem {
 }
 
 interface Sync {
-  <TData>(model: Loadable<TData>, defaultValue?: TData): TData;
+  <TData>(model: Task<TData>, defaultValue?: TData): TData;
+  <TData>(models: Task<TData>[], defaultValue?: TData[]): TData[];
+  <TData>(models: Set<Task<TData>>, defaultValue?: TData[]): TData[];
+  <TData>(models: Map<any, Task<TData>>, defaultValue?: TData[]): TData[];
   <TData, TResult>(
-    model: Loadable<TData>,
+    model: Task<TData>,
     selector: (data: TData) => TResult,
+    defaultValue?: TResult
+  ): TResult;
+  <TData, TResult>(
+    models: Task<TData>[],
+    selector: (data: TData[]) => TResult,
+    defaultValue?: TResult
+  ): TResult;
+  <TData, TResult>(
+    models: Set<Task<TData>>,
+    selector: (data: TData[]) => TResult,
+    defaultValue?: TResult
+  ): TResult;
+  <TData, TResult>(
+    models: Map<any, Task<TData>>,
+    selector: (data: TData[]) => TResult,
     defaultValue?: TResult
   ): TResult;
 }
@@ -89,7 +112,7 @@ interface AsyncModelLoadContext extends Cancellable {
   signal: any;
 }
 
-interface Loadable<TData = any> {
+interface Task<TData = any> {
   data: TData;
   error: any;
   loading: boolean;
@@ -97,7 +120,7 @@ interface Loadable<TData = any> {
 }
 
 interface AsyncModel<TData = any, TParams extends any[] = any[]>
-  extends Loadable<TData> {
+  extends Task<TData> {
   /**
    *
    * @param loader
@@ -378,6 +401,12 @@ interface ModelApi<TProps extends {} = {}>
 
   $lock(): VoidFunction;
 
+  /**
+   * set the model data with hydrated data, if the model is already changed before, no hydration made
+   * @param data
+   */
+  $hydrate(data: TProps): void;
+
   toJSON(): TProps;
 }
 
@@ -587,7 +616,9 @@ function createWatchable<
       const context = getContext();
       let prev = selector(context);
       const cf = getCompareFunction(options?.compare);
-      const wrappedCallback = options.mode ? options.mode(callback) : callback;
+      const wrappedCallback = options.mode
+        ? options.mode()(callback)
+        : callback;
       return context.$listen(() => {
         const next = selector(context);
         if (!cf(prev, next)) {
@@ -740,10 +771,13 @@ const create: Create = (...args: any[]): any => {
   let updatingJobs = 0;
   const initialToken = {};
   let changeToken = initialToken;
+  let familyHydratedData: Map<any, any> | undefined;
+
   const activityEmitter = createEmitter();
   const changeEmitter = createEmitter();
   const cache = new Map<string, CacheItem>();
   const family = new Map<any, Model>();
+
   const wrappers: Wrapper[] = [];
   const invalid = new Map<string, any>();
   const notifyChange = () => {
@@ -1006,7 +1040,7 @@ const create: Create = (...args: any[]): any => {
         assign(update);
       };
 
-      const wrappedHandler = mode ? mode(handleChange) : handleChange;
+      const wrappedHandler = mode ? mode()(handleChange) : handleChange;
 
       const unsubscribes: VoidFunction[] = entries.map(([, model]) =>
         model.$listen(wrappedHandler)
@@ -1172,7 +1206,7 @@ const create: Create = (...args: any[]): any => {
     $memo(...args: any[]) {
       let key = invokingMethodName;
       if (!key) {
-        throw new Error("$memo can be called inside model method");
+        throw new Error("$memo must be called in side model method");
       }
       let fn: Function;
       let deps: any[] | undefined;
@@ -1198,13 +1232,37 @@ const create: Create = (...args: any[]): any => {
       }
       return memo.value;
     },
+    $hydrate(hydratedData) {
+      if (touched.size) return;
+      // is family
+      if (familyKeyProp) {
+        if (!Array.isArray(hydratedData)) {
+          throw new Error("Invalid hydrated data for family model");
+        }
+        familyHydratedData = new Map(hydratedData);
+      } else {
+        Object.entries(hydratedData).forEach(([key, value]) => {
+          if (data[key] === value) return;
+          data[key] = value;
+          touched.add(key);
+        });
+        // has change
+        if (touched.size) {
+          notifyChange();
+        }
+      }
+    },
   };
 
   if (familyKeyProp) {
     const compareFn = getCompareFunction(familyKeyCompare, keyCompare);
-    const findMember = (key: any): [any, Model | undefined] => {
+
+    const findMember = <T>(
+      map: Map<any, T>,
+      key: any
+    ): [any, T | undefined] => {
       if (key && (Array.isArray(key) || typeof key === "object")) {
-        const keyIterator = family.entries();
+        const keyIterator = map.entries();
         while (true) {
           const { value, done } = keyIterator.next();
           if (done) break;
@@ -1214,15 +1272,24 @@ const create: Create = (...args: any[]): any => {
         }
         return [, undefined];
       } else {
-        return [key, family.get(key)];
+        return [key, map.get(key)];
       }
     };
 
     Object.assign(api, {
       [familyProp]: (key: any) => {
-        let [mapKey = key, member] = findMember(key);
+        let [mapKey = key, member] = findMember(family, key);
         if (!member) {
-          member = create({ ...props, [familyKeyProp as string]: key });
+          const [, hydratedData] = familyHydratedData
+            ? findMember(familyHydratedData, mapKey)
+            : [];
+
+          member = create({
+            ...props,
+            ...hydratedData,
+            [familyKeyProp as string]: key,
+          });
+
           (member as InternalModelApi).$$initMember(mapKey, family);
           family.set(mapKey, member);
         }
@@ -1314,7 +1381,8 @@ const create: Create = (...args: any[]): any => {
           init();
           emit({ type: "write", key, value });
           if (hasSetter) {
-            return model[setterKey](value);
+            //
+            if (!model[setterKey](value)) return;
           }
           if (value === data[key]) return;
           data[key] = value;
@@ -1537,7 +1605,8 @@ function sequential(afterDone: boolean = false): ConcurrentMode {
   let lastPromise: Promise<any> | undefined;
   const resolved = Promise.resolve();
 
-  return (f) =>
+  return () =>
+    (f) =>
     (...args: any[]) => {
       if (lastPromise) {
         if (afterDone) {
@@ -1555,9 +1624,13 @@ function sequential(afterDone: boolean = false): ConcurrentMode {
 
 function droppable(): ConcurrentMode {
   let calling = false;
-  return (f) =>
+  return () =>
+    (f, cancel) =>
     (...args: any[]) => {
-      if (calling) return;
+      if (calling) {
+        cancel?.();
+        return;
+      }
       calling = true;
       let isAsync = false;
       try {
@@ -1577,38 +1650,49 @@ function droppable(): ConcurrentMode {
 }
 
 function debounce(ms: number = 0): ConcurrentMode {
-  let timer: any;
-  return (f) =>
-    (...args: any[]) => {
+  return () => (f, cancel) => {
+    let timer: any;
+    return (...args: any[]) => {
+      cancel?.();
       clearTimeout(timer);
-      return new Promise((resolve, reject) => {
-        timer = setTimeout(() => {
-          try {
-            resolve(f(...args));
-          } catch (e) {
-            reject(e);
-          }
-        }, ms);
-      });
+      return Object.assign(
+        new Promise((resolve, reject) => {
+          timer = setTimeout(() => {
+            try {
+              resolve(f(...args));
+            } catch (e) {
+              reject(e);
+            }
+          }, ms);
+        }),
+        {
+          cancel() {
+            cancel?.();
+            clearTimeout(timer);
+          },
+        }
+      );
     };
+  };
 }
 
 function once(): ConcurrentMode {
-  let called = false;
-  let lastResult: any;
-  return (f) =>
-    (...args: any[]) => {
+  return () => (f) => {
+    let called = false;
+    let lastResult: any;
+    return (...args: any[]) => {
       if (called) return lastResult;
       called = true;
       return (lastResult = f(...args));
     };
+  };
 }
 
 function throttle(ms: number): ConcurrentMode {
-  let lastTime: number;
-  let lastResult: any;
-  return (f) =>
-    (...args: any[]) => {
+  return () => (f) => {
+    let lastTime: number;
+    let lastResult: any;
+    return (...args: any[]) => {
       const now = Date.now();
       if (!lastTime || lastTime + ms < now) {
         lastTime = now;
@@ -1616,6 +1700,7 @@ function throttle(ms: number): ConcurrentMode {
       }
       return lastResult;
     };
+  };
 }
 
 function createCancellable(onCancel?: VoidFunction) {
@@ -1633,10 +1718,13 @@ function createCancellable(onCancel?: VoidFunction) {
   return cancellable;
 }
 
-const sync: Sync = (model: Loadable, ...args: any[]) => {
+const sync: Sync = (models: any, ...args: any[]) => {
   let selector: Function | undefined;
   let defaultValue: any;
   let hasDefaultValue = false;
+  let multiple = true;
+  let array: Task[];
+
   if (typeof args[0] === "function") {
     [selector, defaultValue] = args;
     hasDefaultValue = args.length > 1;
@@ -1644,25 +1732,59 @@ const sync: Sync = (model: Loadable, ...args: any[]) => {
     defaultValue = args[0];
     hasDefaultValue = !!args.length;
   }
-  if (model.error) {
-    if (hasDefaultValue) return defaultValue;
-    throw model.error;
+
+  if (Array.isArray(models)) {
+    array = models;
+  } else if (models instanceof Set) {
+    array = Array.from(models);
+  } else if (models instanceof Map) {
+    array = Array.from(models.values());
+  } else {
+    multiple = false;
+    array = [models];
   }
-  if (model.loading) {
+
+  let error: any;
+
+  array.some((model) => {
+    error = model.error;
+    return !!error;
+  });
+
+  if (error) {
     if (hasDefaultValue) return defaultValue;
-    throw model.promise;
+    throw error;
   }
+
+  let loading = false;
+  array.some((model) => {
+    loading = model.loading;
+    return loading;
+  });
+
+  if (loading) {
+    if (hasDefaultValue) return defaultValue;
+    if (multiple) {
+      throw Promise.all(array.map((model) => model.promise));
+    }
+    throw array[0].promise;
+  }
+
   if (selector) {
-    return selector(model.data);
+    if (multiple) {
+      return selector(array.map((model) => model.data));
+    }
+    return selector(array[0].data);
   }
-  return model.data;
+
+  return multiple ? array.map((model) => model.data) : array[0].data;
 };
 
 const async: Async = (
   loader?: Function,
   ...initialParams: any[]
 ): AsyncModel => {
-  const model: AsyncModel = {
+  const props: AsyncModel = {
     data: undefined,
     loading: false,
     error: undefined,
@@ -1685,7 +1807,6 @@ const async: Async = (
     load(fn: Function, timeout) {
       this.loading = true;
       this.error = undefined;
-
       let timer: any;
       const token = ((this as any)._token = {});
       const model = of(this);
@@ -1736,7 +1857,7 @@ const async: Async = (
         timer = setTimeout(cancellable.cancel, timeout);
       }
 
-      return (this.promise = promise);
+      return (model.promise = promise);
     },
     _onInit() {
       if (loader) {
@@ -1748,7 +1869,7 @@ const async: Async = (
     },
   };
 
-  return model;
+  return props;
 };
 
 export {

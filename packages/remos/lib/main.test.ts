@@ -320,7 +320,7 @@ test("$slice", () => {
   expect(logs).toEqual(["slice3", "slice2", "slice1"]);
 });
 
-test("sync: with default value (success)", async () => {
+test("async: with default value (success)", async () => {
   const model = create({
     ...async<number>(),
     _onInit() {
@@ -333,7 +333,7 @@ test("sync: with default value (success)", async () => {
   expect(sync(model, 0)).toBe(1);
 });
 
-test("sync: with default value (error)", async () => {
+test("async: with default value (error)", async () => {
   const model = create({
     ...async<number>(),
     _onInit() {
@@ -350,7 +350,21 @@ test("sync: with default value (error)", async () => {
   expect(sync(model, 0)).toBe(0);
 });
 
-test("sync: (error)", async () => {
+test("sync: multiple task", async () => {
+  const createTask = (ms: number, value: number) =>
+    create(async(() => delay(ms).then(() => value)));
+  const tasks = [createTask(10, 1), createTask(5, 2), createTask(15, 3)];
+  try {
+    sync(tasks);
+    throw null;
+  } catch (e) {
+    expect(e).toBeInstanceOf(Promise);
+  }
+  await delay(20);
+  expect(sync(tasks)).toEqual([1, 2, 3]);
+});
+
+test("async: without default value (error)", async () => {
   const model = create({
     ...async<number>(),
     _onInit() {
@@ -543,4 +557,21 @@ test("$when", async () => {
   model.increase();
   await delay();
   expect(logs).toEqual(["increase", "count"]);
+});
+
+test("$hydrate: untouched", () => {
+  const counter = create({ count: 0 });
+  expect(counter.count).toBe(0);
+  counter.$hydrate({ count: 1 });
+  expect(counter.count).toBe(1);
+  counter.$hydrate({ count: 2 });
+  expect(counter.count).toBe(1);
+});
+
+test("$hydrate: touched", () => {
+  const counter = create({ count: 0 });
+  expect(counter.count).toBe(0);
+  counter.count++;
+  counter.$hydrate({ count: 2 });
+  expect(counter.count).toBe(1);
 });
