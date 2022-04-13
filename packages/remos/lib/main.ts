@@ -23,6 +23,14 @@ interface WriteDataArgs {
   value: any;
 }
 
+interface Accessor<TValue = any, TProps = any> {
+  model: Model<TProps>;
+  value: TValue;
+  invalid: any;
+  get<TState>(type: State<TState>): TState | undefined;
+  set<TState>(type: State<TState>, value: TState): void;
+}
+
 type PropMeta = ConcurrentMode | { mode?: ConcurrentMode };
 
 type ObserverArgs =
@@ -53,7 +61,9 @@ type Call = <TArgs extends any[], TResult>(
   ...args: TArgs
 ) => TResult;
 
-type Model<TProps extends {} = {}> = {
+type AnyProps = Record<string, any>;
+
+type Model<TProps extends {} = AnyProps> = {
   [key in keyof TProps]: TProps[key] extends (...args: any[]) => any
     ? TProps[key] extends (
         ...args: infer TArgs
@@ -257,7 +267,8 @@ interface Watchable<TProps> {
 }
 
 interface State<T = any> {
-  key: T;
+  defaultValue: T | undefined;
+  notifyChange: boolean;
 }
 
 type StateChangeArgs = { prop: string; state: State; value: any };
@@ -275,14 +286,6 @@ interface ModelApi<TProps extends {} = {}>
    * @param state
    */
   $get<T>(prop: keyof TProps, state: State<T>): T | undefined;
-
-  /**
-   * get state of specified prop, if the state is not defined, the default value is returned
-   * @param prop
-   * @param state
-   * @param defaultValue
-   */
-  $get<T>(prop: keyof TProps, state: State<T>, defaultValue: T): T;
 
   /**
    * change state of specified prop, when state value changed, model._onXXXStateChange called
@@ -435,6 +438,12 @@ interface ModelApi<TProps extends {} = {}>
    * @param data
    */
   $hydrate(data: TProps): void;
+
+  /**
+   * get prop accessor of specified prop name
+   * @param prop
+   */
+  $prop(prop: keyof TProps): Accessor<TProps[typeof prop], TProps>;
 
   toJSON(): TProps;
 }
@@ -814,6 +823,7 @@ const create: Create = (...args: any[]): any => {
   const wrappers: Wrapper[] = [];
   const invalid = new Map<string, any>();
   const allPropStates = new Map<string, Map<State<any>, any>>();
+  const propAccessors = new Map<string, Accessor>();
   const notifyChange = () => {
     model._onChange?.();
     model._valAll?.();
@@ -1307,9 +1317,9 @@ const create: Create = (...args: any[]): any => {
         }
       }
     },
-    $get(prop, state, defaultValue?) {
+    $get(prop, state) {
       const states = getPropStates(prop);
-      if (!states || !states.has(state)) return defaultValue;
+      if (!states || !states.has(state)) return state.defaultValue;
       return states.get(state);
     },
     $set(prop, state, value) {
@@ -1319,8 +1329,18 @@ const create: Create = (...args: any[]): any => {
         const e: StateChangeArgs = { prop, state, value };
         magicMethod("_on", prop, "StateChange", (m) => m(e));
         model._onStateChange?.(e);
-        notifyChange();
+        if (state.notifyChange) {
+          notifyChange();
+        }
       }
+    },
+    $prop(prop: any): any {
+      let accessor = propAccessors.get(prop);
+      if (!accessor) {
+        accessor = createAccessor(model, prop);
+        propAccessors.set(prop, accessor);
+      }
+      return accessor;
     },
   };
 
@@ -2010,8 +2030,40 @@ const async: Async = (
   return props;
 };
 
-function state<T>() {
-  return {} as State<T>;
+function state<T>(defaultValue?: T, notifyChange?: boolean): State<T> {
+  return {
+    defaultValue,
+    notifyChange: notifyChange ?? true,
+  };
+}
+
+function createAccessor<TValue = any, TProps = AnyProps>(
+  model: Model<TProps>,
+  prop: keyof TProps
+): Accessor<TValue> {
+  return {
+    get model() {
+      return model;
+    },
+    get value(): any {
+      return model[prop];
+    },
+    set value(value) {
+      model[prop] = value;
+    },
+    get invalid() {
+      return model.$invalid(prop);
+    },
+    set invalid(value: any) {
+      model.$invalid(prop, value);
+    },
+    get(state) {
+      return model.$get(prop, state);
+    },
+    set(state, value) {
+      model.$set(prop, state, value);
+    },
+  };
 }
 
 export {
@@ -2020,6 +2072,7 @@ export {
   UseModel,
   Wrapper,
   ModelSlice,
+  Accessor,
   FamilyModel,
   MemberModel,
   Create,

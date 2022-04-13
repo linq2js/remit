@@ -673,9 +673,13 @@ test("chaining model", async () => {
 
 test("state", () => {
   const model = create({ prop1: 1 });
-  const touched = state<boolean>();
-  expect(model.$get("prop1", touched)).toBeUndefined();
-  expect(model.$get("prop1", touched, true)).toBe(true);
+  const touched = state<boolean>(true);
+  expect(model.$get("prop1", touched)).toBe(true);
   model.$set("prop1", touched, false);
   expect(model.$get("prop1", touched)).toBe(false);
+  const prop1 = model.$prop("prop1");
+  prop1.value++;
+  expect(model.prop1).toBe(2);
+  prop1.set(touched, true);
+  expect(model.$get("prop1", touched)).toBe(true);
 });
