@@ -8,7 +8,7 @@
   },
   "homepage": "https://linq2js.github.io/remos/",
   "license": "ISC",
-  "main": "dist/tsc/main.js",
+  "main": "dist/main.js",
   "types": "dist/tsc/main.d.ts",
   "directories": {
     "lib": "lib"
@@ -38,20 +38,11 @@
   },
   "scripts": {
     "prepublishOnly": "yarn test && yarn && yarn build",
-    "cli": "ts-node lib/cli.ts",
     "lint": "eslint lib/ --ext .js,.jsx,.ts,.tsx",
     "test": "jest --passWithNoTests",
     "clean": "rm -rf dist build package",
     "ts-node": "ts-node",
-    "build": "tsc -p tsconfig.json",
-    "build-all": "yarn clean && yarn build && yarn esbuild-node && yarn esbuild-browser && yarn esbuild-web",
-    "esbuild-web": "esbuild lib/main.ts --bundle --platform=node --minify --sourcemap=external --outfile=dist/esbuild/web.js",
-    "esbuild-browser": "esbuild lib/browser.ts --bundle --minify --sourcemap=external --outfile=dist/esbuild/browser.js",
-    "esbuild-browser:dev": "esbuild lib/browser.ts --bundle --outfile=dist/esbuild/browser.js",
-    "esbuild-browser:watch": "esbuild lib/browser.ts --bundle --watch --outfile=dist/esbuild/browser.js",
-    "esbuild-node": "esbuild lib/cli.ts --bundle --platform=node --minify --sourcemap=external --outfile=dist/esbuild/cli.js",
-    "esbuild-node:dev": "esbuild lib/cli.ts --bundle --platform=node --sourcemap=external --outfile=dist/esbuild/cli.js",
-    "esbuild-node:watch": "esbuild lib/cli.ts --bundle --platform=node --watch --sourcemap=external --outfile=dist/esbuild/cli.js"
+    "build": "rimraf dist && tsc && rollup -c rollup.config.js"
   },
   "gitHead": "32621a942d90ef236d6f8d72399df6d33b1b09d0"
 }

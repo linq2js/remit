@@ -1,4 +1,4 @@
-import { Model, ModelApi } from "remos";
+import type { Model, ModelApi } from "remos";
 import produce from "immer";
 
 interface WithImmerOptions {
