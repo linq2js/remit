@@ -256,12 +256,42 @@ interface Watchable<TProps> {
   ): VoidFunction;
 }
 
+interface State<T = any> {
+  key: T;
+}
+
+type StateChangeArgs = { prop: string; state: State; value: any };
+
 interface ModelApi<TProps extends {} = {}>
   extends Listenable<TProps>,
     Watchable<TProps>,
     Slicable<TProps> {
   readonly $model: Model<TProps>;
   readonly $props: TProps;
+
+  /**
+   * get state of specified prop
+   * @param prop
+   * @param state
+   */
+  $get<T>(prop: keyof TProps, state: State<T>): T | undefined;
+
+  /**
+   * get state of specified prop, if the state is not defined, the default value is returned
+   * @param prop
+   * @param state
+   * @param defaultValue
+   */
+  $get<T>(prop: keyof TProps, state: State<T>, defaultValue: T): T;
+
+  /**
+   * change state of specified prop, when state value changed, model._onXXXStateChange called
+   * @param prop
+   * @param state
+   * @param value
+   */
+  $set<T>(prop: keyof TProps, state: State<T>, value: T): void;
+
   /**
    * return dirty status of the model
    */
@@ -783,6 +813,7 @@ const create: Create = (...args: any[]): any => {
 
   const wrappers: Wrapper[] = [];
   const invalid = new Map<string, any>();
+  const allPropStates = new Map<string, Map<State<any>, any>>();
   const notifyChange = () => {
     model._onChange?.();
     model._valAll?.();
@@ -797,7 +828,6 @@ const create: Create = (...args: any[]): any => {
   let lockers = 0;
   let touched = new Set<string>();
 
-  // clone prop
   const data: any = {};
 
   function emit(args: ObserverArgs) {
@@ -824,6 +854,17 @@ const create: Create = (...args: any[]): any => {
         target[key] = value;
       }
     });
+  }
+
+  function getPropStates(prop: string, shouldCreate = false) {
+    let storage = allPropStates.get(prop);
+    if (!storage) {
+      if (shouldCreate) {
+        storage = new Map();
+        allPropStates.set(prop, storage);
+      }
+    }
+    return storage;
   }
 
   function call(method: Function, args: any[] = [], lazy: boolean = false) {
@@ -873,7 +914,7 @@ const create: Create = (...args: any[]): any => {
     return undefined;
   }
 
-  function virtualMethod<T>(
+  function magicMethod<T>(
     prefix: string,
     name: string,
     postfix: string,
@@ -925,6 +966,7 @@ const create: Create = (...args: any[]): any => {
 
   const modelGetter = () => model;
 
+  // create api methods
   api = {
     [typeProp]: () => modelType,
 
@@ -1199,6 +1241,7 @@ const create: Create = (...args: any[]): any => {
       call(() => {
         changeToken = initialToken;
         cache.clear();
+        allPropStates.clear();
         touched.clear();
         invalid.clear();
         if (hardReset) {
@@ -1264,8 +1307,24 @@ const create: Create = (...args: any[]): any => {
         }
       }
     },
+    $get(prop, state, defaultValue?) {
+      const states = getPropStates(prop);
+      if (!states || !states.has(state)) return defaultValue;
+      return states.get(state);
+    },
+    $set(prop, state, value) {
+      const storage = getPropStates(prop, true)!;
+      if (!storage.has(state) || storage.get(state) !== value) {
+        storage.set(state, value);
+        const e: StateChangeArgs = { prop, state, value };
+        magicMethod("_on", prop, "StateChange", (m) => m(e));
+        model._onStateChange?.(e);
+        notifyChange();
+      }
+    },
   };
 
+  // is family model
   if (familyKeyProp) {
     const compareFn = getCompareFunction(familyKeyCompare, keyCompare);
 
@@ -1288,6 +1347,7 @@ const create: Create = (...args: any[]): any => {
       }
     };
 
+    // add special props for family model
     Object.assign(api, {
       [familyProp]: (key: any) => {
         let [mapKey = key, member] = findMember(family, key);
@@ -1323,6 +1383,7 @@ const create: Create = (...args: any[]): any => {
     }
   });
 
+  // bind props
   Object.keys(initialProps).forEach((key) => {
     const value = initialProps[key];
 
@@ -1343,11 +1404,21 @@ const create: Create = (...args: any[]): any => {
           }
         } else if (
           key !== "_onChange" &&
-          key.startsWith("_on") &&
-          key.endsWith("Change")
+          key !== "_onStateChange" &&
+          key.startsWith("_on")
         ) {
-          if (!hasProp(key.slice(3, -6), initialProps)) {
-            console.warn(`No prop is matched for change handler ${key}`);
+          if (key.endsWith("StateChange")) {
+            if (!hasProp(key.slice(3, -11), initialProps)) {
+              console.warn(
+                `No prop is matched for state change handler ${key}`
+              );
+            }
+          } else if (key.endsWith("Change")) {
+            if (!hasProp(key.slice(3, -6), initialProps)) {
+              console.warn(
+                `No prop is matched for value change handler ${key}`
+              );
+            }
           }
         } else if (key !== "_valAll" && key.startsWith("_val")) {
           if (!hasProp(key.slice(8), initialProps)) {
@@ -1425,16 +1496,15 @@ const create: Create = (...args: any[]): any => {
           init();
           emit({ type: "write", key, value });
           if (hasSetter) {
-            //
-            if (!model[setterKey](value)) return;
+            if (model[setterKey](value) === false) return;
           }
           if (value === data[key]) return;
           data[key] = value;
           touched.add(key);
           changeToken = {};
           // trigger individual prop change event
-          virtualMethod("_on", key, "Change");
-          virtualMethod("_val", key, "", (m) => {
+          magicMethod("_on", key, "Change");
+          magicMethod("_val", key, "", (m) => {
             try {
               const result = m();
               if (typeof result?.then === "function") {
@@ -1940,6 +2010,10 @@ const async: Async = (
   return props;
 };
 
+function state<T>() {
+  return {} as State<T>;
+}
+
 export {
   Model,
   ModelApi,
@@ -1977,4 +2051,5 @@ export {
   droppable,
   sequential,
   abstract,
+  state,
 };

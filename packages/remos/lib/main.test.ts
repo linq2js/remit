@@ -3,6 +3,7 @@ import {
   async,
   create,
   debounce,
+  state,
   inject,
   Model,
   of,
@@ -614,20 +615,24 @@ test("metas", async () => {
   expect(counter.count).toBe(2);
 });
 
-test("warning", () => {
+test("warning for unused magic methods", () => {
   consoleWarnMock = jest.spyOn(console, "warn").mockImplementation();
   const model = create({
     $meta: { something: 0 },
+    count: 0,
     _getSomething() {},
     _setSomething() {},
     _onSomethingChange() {},
+    _onSomethingStateChange() {},
     _valSomething() {},
+    _onCountStateChange() {},
   });
   model;
   expect(consoleWarnMock.mock.calls).toEqual([
     ["No prop is matched for setter/getter _getSomething"],
     ["No prop is matched for setter/getter _setSomething"],
-    ["No prop is matched for change handler _onSomethingChange"],
+    ["No prop is matched for value change handler _onSomethingChange"],
+    ["No prop is matched for state change handler _onSomethingStateChange"],
     ["No prop is matched for validator _valSomething"],
     ["No prop is matched for the something meta"],
   ]);
@@ -664,4 +669,13 @@ test("chaining model", async () => {
   await delay(15);
   expect(double.data).toBe(2);
   expect(double.loading).toBeFalsy();
+});
+
+test("state", () => {
+  const model = create({ prop1: 1 });
+  const touched = state<boolean>();
+  expect(model.$get("prop1", touched)).toBeUndefined();
+  expect(model.$get("prop1", touched, true)).toBe(true);
+  model.$set("prop1", touched, false);
+  expect(model.$get("prop1", touched)).toBe(false);
 });
