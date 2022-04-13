@@ -617,6 +617,7 @@ test("metas", async () => {
 
 test("warning for unused magic methods", () => {
   consoleWarnMock = jest.spyOn(console, "warn").mockImplementation();
+  consoleWarnMock.mockImplementation(() => {});
   const model = create({
     $meta: { something: 0 },
     count: 0,
@@ -662,11 +663,11 @@ test("chaining model", async () => {
   expect(counter.loading).toBeTruthy();
   expect(double.data).toBeUndefined();
   expect(double.loading).toBeTruthy();
-  await delay(15);
+  await delay(10);
   // at this time, counter model is already loaded but the double model is still loading
   expect(counter.data).toBe(1);
   expect(double.loading).toBeTruthy();
-  await delay(15);
+  await delay(20);
   expect(double.data).toBe(2);
   expect(double.loading).toBeFalsy();
 });

@@ -61,6 +61,37 @@ const counterModel = create({
 counterModel.count++;
 ```
 
+There are 2 kinds of model, global and local models. A global works like single Redux store, that means we can have multiple stores in an app.
+The local model works like useState() hook, you can use it to store local states and when you change its props, the component will re-render
+
+```js
+import { create, useModel } from "remos";
+
+// the global is created by calling create function with specified props
+const globalModel = create({});
+
+const GlobalModelConsumer = () => {
+  // consume globalModel, the component will re-render when global model props are changed
+  useModel(globalModel);
+  // render global model prop
+  return <h1>{globalModel.prop}</h1>;
+};
+
+const LocalModelConsumer = () => {
+  // create and consume local model
+  // local model is created once and get from cache for next re-rendering time
+  const localModel = useModel({ prop1: 1, prop2: 2 });
+  // if you local model has complex logic and too much properties, you can put those things into the function that returns a model props, that function is called once
+  const otherLocalModel = useModel(() => ({
+    prop1: 1,
+    prop2: 2,
+    method1() {},
+    method2() {},
+  }));
+  return <h1>{localModel.prop1}</h1>;
+};
+```
+
 ## Magic methods
 
 You can define magic methods to handle some special events of the model
@@ -193,6 +224,10 @@ const App = () => {
 ### Handling multiple model updates
 
 ```js
+const model1 = create({});
+const model2 = create({});
+const model3 = create({});
+
 const App = () => {
   // the component will be re-rendered whenever model1, model2, model3 are updated
   useModel([model1, model2, model3]);

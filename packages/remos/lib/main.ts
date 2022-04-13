@@ -23,7 +23,7 @@ interface WriteDataArgs {
   value: any;
 }
 
-interface Accessor<TValue = any, TProps = any> {
+interface Accessor<TValue = any, TProps = any> extends Listenable {
   model: Model<TProps>;
   value: TValue;
   invalid: any;
@@ -217,7 +217,11 @@ interface Base<TProps extends {}> {
   ): TResult;
 }
 
-interface Listenable<TProps> {
+interface Listenable {
+  $listen(listener: VoidFunction): VoidFunction;
+}
+
+interface Notifier<TProps> {
   /**
    * Register listener to listen model props changed event
    * @param listener
@@ -274,7 +278,7 @@ interface State<T = any> {
 type StateChangeArgs = { prop: string; state: State; value: any };
 
 interface ModelApi<TProps extends {} = {}>
-  extends Listenable<TProps>,
+  extends Notifier<TProps>,
     Watchable<TProps>,
     Slicable<TProps> {
   readonly $model: Model<TProps>;
@@ -455,7 +459,7 @@ interface Slicable<TProps> {
 }
 
 type ModelSlice<TProps> = Readonly<TProps> &
-  Listenable<TProps> &
+  Notifier<TProps> &
   Watchable<TProps> &
   Slicable<TProps>;
 
@@ -505,19 +509,19 @@ interface UseModel {
     update?: (prev: TProps) => Partial<TProps>
   ): Model<TProps>;
 
-  <T extends Listenable<TProps>, TProps>(
+  <T extends Listenable, TProps>(
     listenable: T,
     options?: Omit<UseModelOptions<TProps>, "update">
   ): T;
 
   (
-    listenable: Listenable<any>[],
+    listenable: Listenable[],
     options?: Omit<UseModelOptions<any>, "update">
   ): void;
 
   <T, TResult>(
     listenable: T,
-    selector: T extends Listenable<any>
+    selector: T extends Listenable
       ? (props: T) => TResult
       : T extends Record<string, any>
       ? (allProps: {
@@ -645,7 +649,7 @@ function createEmitter(): Emitter {
 
 function createWatchable<
   TProps,
-  TContext extends TProps & Listenable<TContext> = any
+  TContext extends TProps & Notifier<TContext> = any
 >(getContext: () => TContext): Watchable<TProps> {
   return {
     $watch(selector, callback, options) {
@@ -672,7 +676,7 @@ function createListenable<TContext = any>(
   getContext: () => TContext,
   emitter: Emitter,
   init?: VoidFunction
-): Listenable<TContext> {
+): Notifier<TContext> {
   return {
     $listen(...args: any[]) {
       let listener: Function;
@@ -731,7 +735,7 @@ function createSlice<TProps, TResult>(
   selector: (props: TProps) => TResult
 ): ModelSlice<TResult> {
   const emitter = createEmitter();
-  let slice: TProps & Listenable<TProps> & Watchable<TProps>;
+  let slice: TProps & Notifier<TProps> & Watchable<TProps>;
   const sliceGetter = () => slice;
   const context = getContext();
   slice = {
@@ -1382,7 +1386,7 @@ const create: Create = (...args: any[]): any => {
             [familyKeyProp as string]: key,
           });
 
-          (member as InternalModelApi).$$initMember(mapKey, family);
+          (member as unknown as InternalModelApi).$$initMember(mapKey, family);
           family.set(mapKey, member);
         }
         return member;
@@ -1390,7 +1394,10 @@ const create: Create = (...args: any[]): any => {
     });
   }
 
-  model = { ...api };
+  model = {
+    ...api,
+    listen: api.$listen,
+  } as any;
 
   const initialProps: any = { ...props };
   const propsMetas: Record<string, PropMeta> = {};
@@ -1603,13 +1610,13 @@ const abstract = <TArgs extends any[] = any[], TResult = void>(
 };
 
 const useModel: UseModel = (...args: any[]): any => {
-  const modelRef = React.useRef<Model>();
+  const listenableRef = React.useRef<Listenable>();
   const rerender = React.useState<any>()[1];
   const optionsRef = React.useRef<UseModelOptions>({});
   const selectorRef = React.useRef<Function>();
   const compareFnRef = React.useRef<Comparer>();
   const errorRef = React.useRef<any>();
-  const models: Model[] = [];
+  const listeners: Listenable[] = [];
   const renderingRef = React.useRef(true);
   let creator: Function | undefined;
   let inputOptions: UseModelOptions | undefined;
@@ -1618,36 +1625,36 @@ const useModel: UseModel = (...args: any[]): any => {
   // useModel(creator)
   if (typeof args[0] === "function") {
     creator = args[0];
-    if (!modelRef.current) {
-      modelRef.current = create(creator?.(create));
+    if (!listenableRef.current) {
+      listenableRef.current = create(creator?.(create));
     }
     inputOptions = args[1];
-    models.push(modelRef.current!);
+    listeners.push(listenableRef.current!);
   } else {
     // useModel(models, options)
     if (Array.isArray(args[0])) {
       args[0]
         .filter((x) => !!x)
         .forEach((model) => {
-          if (models.includes(model)) return;
-          models.push(model);
+          if (listeners.includes(model)) return;
+          listeners.push(model);
         });
       inputOptions = args[1];
     } else if (args[0]) {
-      // useModel(model, selector, compareFn)
-      if (isModel(args[0])) {
-        const model: Model = (modelRef.current = args[0]);
+      // useModel(listener, selector, compareFn)
+      if (typeof args[0]?.$listen === "function") {
+        const listenable: Listenable = (listenableRef.current = args[0]);
 
-        // useModel(model, selector, compareFn)
+        // useModel(listener, selector, compareFn)
         if (typeof args[1] === "function") {
           const selector: Function = args[1];
-          selectorRef.current = () => selector(model);
+          selectorRef.current = () => selector(listenable);
           compareFnRef.current = args[2];
         } else {
           // useModel(model, options)
           inputOptions = args[1];
         }
-        models.push(args[0]);
+        listeners.push(args[0]);
       } else {
         // useModel(models, selector, compareFn)
         if (typeof args[1] === "function") {
@@ -1657,15 +1664,15 @@ const useModel: UseModel = (...args: any[]): any => {
             return selector(modelMap);
           };
           compareFnRef.current = args[2];
-          models.push(...Object.values(modelMap));
+          listeners.push(...Object.values(modelMap));
         } else {
           // useModel(props, options)
           // useModel(props, update, options)
           const props = args[0];
-          if (!modelRef.current) {
-            modelRef.current = create(props);
+          if (!listenableRef.current) {
+            listenableRef.current = create(props);
           }
-          models.push(modelRef.current);
+          listeners.push(listenableRef.current);
           if (typeof args[1] === "function") {
             inputOptions = { update: args[1], ...args[2] };
           } else {
@@ -1675,7 +1682,7 @@ const useModel: UseModel = (...args: any[]): any => {
       }
     }
 
-    if (!models.length) {
+    if (!listeners.length) {
       throw new Error("No model spcified");
     }
   }
@@ -1687,16 +1694,16 @@ const useModel: UseModel = (...args: any[]): any => {
 
   effectHook(() => {
     let prevValue: any;
-    const handleChange = (model: Model) => {
+    const handleChange = (listenable: Listenable) => {
       errorRef.current = undefined;
 
       try {
         if (renderingRef.current) return;
-        optionsRef.current.onChange?.(model);
+        optionsRef.current.onChange?.(listenable);
 
         // has selector
         if (selectorRef.current) {
-          const nextValue = selectorRef.current(...models);
+          const nextValue = selectorRef.current(...listeners);
           const compareFn = getCompareFunction(compareFnRef.current);
           // nothing change
           if (compareFn(prevValue, nextValue)) return;
@@ -1708,20 +1715,22 @@ const useModel: UseModel = (...args: any[]): any => {
 
       rerender({});
     };
-    const unsubscribes = models.map((model) =>
+    const unsubscribes = listeners.map((model) =>
       model.$listen(() => handleChange(model))
     );
     return () => {
       unsubscribes.forEach((x) => x());
     };
-  }, models);
+  }, listeners);
 
   if (optionsRef.current.update) {
-    modelRef.current?.$merge(
-      typeof optionsRef.current.update === "function"
-        ? optionsRef.current.update(modelRef.current)
-        : optionsRef.current.update
-    );
+    if (isModel(listenableRef.current)) {
+      listenableRef.current?.$merge(
+        typeof optionsRef.current.update === "function"
+          ? optionsRef.current.update(listenableRef.current)
+          : optionsRef.current.update
+      );
+    }
   }
 
   renderingRef.current = false;
@@ -1733,10 +1742,10 @@ const useModel: UseModel = (...args: any[]): any => {
   }
 
   if (selectorRef.current) {
-    return selectorRef.current(...models);
+    return selectorRef.current(...listeners);
   }
 
-  return models[0];
+  return listeners[0];
 };
 
 function as<T>(value: T) {
@@ -2062,6 +2071,9 @@ function createAccessor<TValue = any, TProps = AnyProps>(
     },
     set(state, value) {
       model.$set(prop, state, value);
+    },
+    $listen(listener) {
+      return model.$listen(prop, listener);
     },
   };
 }
