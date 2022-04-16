@@ -1,6 +1,6 @@
 {
   "name": "remos",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "React Model Oriented Store",
   "author": "linq2js <linqtojs@gmail.com>",
   "repository": {
