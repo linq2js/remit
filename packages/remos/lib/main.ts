@@ -27,6 +27,7 @@ interface Accessor<TValue = any, TProps = any> extends Listenable {
   model: Model<TProps>;
   value: TValue;
   invalid: any;
+  change(value: TValue): void;
   get<TState>(type: State<TState>): TState | undefined;
   set<TState>(type: State<TState>, value: TState): void;
 }
@@ -39,7 +40,7 @@ type ObserverArgs =
   | ReadDataArgs
   | WriteDataArgs;
 
-type ActivityFilter<TProp = {}> =
+type ActivityFilter<TProp = AnyProps> =
   | keyof TProp
   | Omit<MethodCallArgs, "args">
   | Omit<MemberRemoveArgs, "model">
@@ -78,10 +79,11 @@ type MemberModel<T extends {} = {}, TKey = any> = Model<T> & {
   $remove(): void;
 };
 
-type FamilyModel<TProps extends {} = {}, TKey = any> = Model<TProps> & {
-  [familyProp](key: TKey): MemberModel<TProps, TKey>;
-  $data(): [any, any][];
+type Family<TProps extends {} = {}, TKey = any> = ((
+  key: TKey
+) => MemberModel<TProps, TKey>) & {
   $hydrate(data: [any, TProps][]): void;
+  $clear(): void;
 };
 
 interface CacheItem {
@@ -192,7 +194,6 @@ interface Cancellable {
 interface CancellablePromise<T = any> extends Promise<T>, Cancellable {}
 
 const typeProp = "$$type";
-const familyProp = "$family";
 const noop = () => {};
 
 interface Base<TProps extends {}> {
@@ -277,7 +278,7 @@ interface State<T = any> {
 
 type StateChangeArgs = { prop: string; state: State; value: any };
 
-interface ModelApi<TProps extends {} = {}>
+interface ModelApi<TProps extends {} = AnyProps>
   extends Notifier<TProps>,
     Watchable<TProps>,
     Slicable<TProps> {
@@ -449,6 +450,8 @@ interface ModelApi<TProps extends {} = {}>
    */
   $prop(prop: keyof TProps): Accessor<TProps[typeof prop], TProps>;
 
+  $child(prop: keyof TProps): Model<TProps[typeof prop]>;
+
   toJSON(): TProps;
 }
 
@@ -463,17 +466,37 @@ type ModelSlice<TProps> = Readonly<TProps> &
   Watchable<TProps> &
   Slicable<TProps>;
 
-interface InternalModelApi<TProps extends {} = {}> extends ModelApi<TProps> {
+interface InternalModelApi<TProps extends {} = AnyProps>
+  extends ModelApi<TProps> {
   [typeProp]: any;
   $$initMember(key: any, family: Map<any, Model>): void;
 }
 
 interface Create {
-  <TProps extends {}>(
-    props: TProps,
-    key: keyof TProps,
-    compareFn?: Comparer<TProps[typeof key]>
-  ): FamilyModel<TProps, TProps[typeof key]>;
+  <TProps extends {}, TKey>(props: (key: TKey) => TProps): Family<TProps, TKey>;
+
+  <TProps extends {}, TKey>(
+    props: (key: TKey) => TProps,
+    compareFn?: Comparer<TKey>
+  ): Family<TProps, TKey>;
+
+  <TProps extends {}, TKey, TBase extends Record<string, {}>>(
+    props: (
+      key: TKey,
+      base: {
+        [key in keyof TBase]: TBase[key] extends Model<infer T>
+          ? Base<T>
+          : Base<TBase[key]>;
+      }
+    ) => TProps,
+    base: TBase
+  ): Family<TProps, TKey>;
+
+  <TProps extends {}, TKey, TBase extends Record<string, {}>>(
+    props: (key: TKey) => TProps,
+    base: TBase,
+    compareFn?: Comparer<TKey>
+  ): Family<TProps, TKey>;
 
   <TProps extends {}, TBase extends Record<string, {}>>(
     base: TBase,
@@ -483,17 +506,6 @@ interface Create {
         : Base<TBase[key]>;
     }) => TProps
   ): Model<TProps>;
-
-  <TProps extends {}, TBase extends Record<string, {}>>(
-    base: TBase,
-    builder: (base: {
-      [key in keyof TBase]: TBase[key] extends Model<infer T>
-        ? Base<T>
-        : Base<TBase[key]>;
-    }) => TProps,
-    key: keyof TProps,
-    compareFn?: Comparer<TProps[typeof key]>
-  ): FamilyModel<TProps, TProps[typeof key]>;
 
   <TProps extends {}>(props: TProps): Model<TProps>;
 }
@@ -771,20 +783,35 @@ function hasProp(name: string, obj: any) {
  */
 const create: Create = (...args: any[]): any => {
   let model: Model<any>;
-  let familyKeyProp: string | undefined;
+  let familyFactory: Function | undefined;
   let familyKeyCompare: Comparer | undefined;
   let props: any;
+  let baseProps: Record<string, Model<any>> | undefined;
+  let propsBuilder: Function | undefined;
+  const extendedProps: Record<string, Function> = {};
 
   if (isModel(args[0])) return args[0];
-  // builder
-  if (typeof args[1] === "function") {
-    const bases: Record<string, Function> = {};
-    const builder = args[1] as Function;
+
+  if (typeof args[0] === "function") {
+    // base props
+    if (typeof args[1] === "object") {
+      [familyFactory, baseProps, familyKeyCompare] = args;
+    } else {
+      [familyFactory, familyKeyCompare] = args;
+    }
+  } else if (typeof args[1] === "function") {
+    [baseProps, propsBuilder] = args;
+  } else {
+    [props] = args;
+  }
+
+  // has base props
+  if (baseProps) {
     Object.entries(args[0] as Record<string, Model<any>>).forEach(
       ([key, base]) => {
         const props: any = isModel(base) ? base.$props : base;
 
-        bases[key] = (name: string, ...args: any[]) => {
+        extendedProps[key] = (name: string, ...args: any[]) => {
           // get base props
           if (!name) {
             return props;
@@ -803,13 +830,68 @@ const create: Create = (...args: any[]): any => {
         };
       }
     );
-    props = builder(bases);
-    familyKeyProp = args[2];
-    familyKeyCompare = args[3];
-  } else {
-    props = args[0];
-    familyKeyProp = args[1];
-    familyKeyCompare = args[2];
+  }
+
+  if (propsBuilder) {
+    props = propsBuilder(extendedProps);
+  }
+
+  if (familyFactory) {
+    const family = new Map<any, Model>();
+    let familyHydratedData = new Map<any, any>();
+
+    const compareFn = getCompareFunction(familyKeyCompare, keyCompare);
+
+    const findMember = <T>(
+      map: Map<any, T>,
+      key: any
+    ): [any, T | undefined] => {
+      if (key && (Array.isArray(key) || typeof key === "object")) {
+        const keyIterator = map.entries();
+        while (true) {
+          const { value, done } = keyIterator.next();
+          if (done) break;
+          if (compareFn(value[0], key)) {
+            return value;
+          }
+        }
+        return [, undefined];
+      } else {
+        return [key, map.get(key)];
+      }
+    };
+
+    const familyModel: Family = Object.assign(
+      (key: any): any => {
+        let [mapKey = key, member] = findMember(family, key);
+        if (!member) {
+          const [, hydratedData] = familyHydratedData.size
+            ? findMember(familyHydratedData, mapKey)
+            : [];
+
+          member = create({
+            ...familyFactory?.(mapKey, baseProps),
+            ...hydratedData,
+          });
+
+          (member as unknown as InternalModelApi).$$initMember(mapKey, family);
+          family.set(mapKey, member);
+        }
+        return member;
+      },
+      {
+        $hydrate(entries: any[][]) {
+          entries.forEach(([key, value]) => {
+            familyHydratedData.set(key, value);
+          });
+        },
+        $clear() {
+          family.clear();
+        },
+      }
+    );
+
+    return familyModel;
   }
 
   if (!props) throw new Error("Invalid model props");
@@ -817,17 +899,16 @@ const create: Create = (...args: any[]): any => {
   let updatingJobs = 0;
   const initialToken = {};
   let changeToken = initialToken;
-  let familyHydratedData: Map<any, any> | undefined;
 
   const activityEmitter = createEmitter();
   const changeEmitter = createEmitter();
   const cache = new Map<string, CacheItem>();
-  const family = new Map<any, Model>();
 
   const wrappers: Wrapper[] = [];
   const invalid = new Map<string, any>();
   const allPropStates = new Map<string, Map<State<any>, any>>();
   const propAccessors = new Map<string, Accessor>();
+  const children = new Map<string, Model>();
   const notifyChange = () => {
     model._onChange?.();
     model._valAll?.();
@@ -906,28 +987,6 @@ const create: Create = (...args: any[]): any => {
     }
   }
 
-  function familyMethod(
-    method: keyof Model,
-    args?: IArguments | any[] | false
-  ): undefined | any[] {
-    if (familyKeyProp) {
-      if (args === false) {
-        throw new Error(
-          `The family model does not support this method ${method}`
-        );
-      }
-      const result: any[] = [];
-      family.forEach((member) => {
-        const m: any = member[method];
-        if (typeof m === "function") {
-          result.push(m(...((args ?? []) as any)));
-        }
-      });
-      return result as any;
-    }
-    return undefined;
-  }
-
   function magicMethod<T>(
     prefix: string,
     name: string,
@@ -998,22 +1057,16 @@ const create: Create = (...args: any[]): any => {
       }
     },
     $dirty(prop?: any) {
-      familyMethod("$dirty", false);
-
       if (!prop) {
         return changeToken !== initialToken;
       }
       return props[prop] !== data[prop];
     },
     $touched(prop?) {
-      familyMethod("$touched", false);
-
       if (!prop) return !!touched.size;
       return touched.has(prop as any);
     },
     $data() {
-      familyMethod("$data", false);
-
       return data;
     },
     $$initMember(key: any, family: Map<any, Model>) {
@@ -1050,12 +1103,6 @@ const create: Create = (...args: any[]): any => {
     toJSON: () => data,
 
     $silent() {
-      const familyResult: VoidFunction[] | undefined = familyMethod("$silent");
-
-      if (familyResult) {
-        return () => familyResult.forEach((x) => x());
-      }
-
       let active = true;
       const token = changeToken;
       slientRequests++;
@@ -1070,12 +1117,6 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $lock() {
-      const familyResult: VoidFunction[] | undefined = familyMethod("$lock");
-
-      if (familyResult) {
-        return () => familyResult.forEach((x) => x());
-      }
-
       let active = true;
       lockers++;
       return () => {
@@ -1084,8 +1125,6 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $sync(input, selector, mode) {
-      familyMethod("$sync", false);
-
       let handleChange: VoidFunction;
       const unsubscribes: VoidFunction[] = [];
       const models: Model[] = [];
@@ -1122,9 +1161,6 @@ const create: Create = (...args: any[]): any => {
       };
     },
     $call(fn, ...args) {
-      const familyResult = familyMethod("$call", arguments);
-      if (familyResult) return familyResult[0];
-
       return call(fn, args);
     },
     $observe: activityEmitter.add,
@@ -1251,24 +1287,22 @@ const create: Create = (...args: any[]): any => {
       return Object.assign(promise, { cancel: () => cancel?.() });
     },
     $reset(hardReset) {
-      if (familyMethod("$reset", arguments)) return;
       call(() => {
         changeToken = initialToken;
         cache.clear();
         allPropStates.clear();
+        children.clear();
         touched.clear();
         invalid.clear();
         if (hardReset) {
-          family.clear();
           changeEmitter.clear();
         }
-        assign(props, data);
+        assign(overridenProps, data);
         initialized = false;
         notifyChange();
       });
     },
     $merge(props: any, lazy?: boolean) {
-      if (familyMethod("$merge", arguments)) return;
       call(assign, [props], !!lazy);
     },
     $memo(...args: any[]) {
@@ -1301,24 +1335,16 @@ const create: Create = (...args: any[]): any => {
       return memo.value;
     },
     $hydrate(hydratedData) {
-      // is family
-      if (familyKeyProp) {
-        if (!Array.isArray(hydratedData)) {
-          throw new Error("Invalid hydrated data for family model");
-        }
-        familyHydratedData = new Map(hydratedData);
-      } else {
-        const prevSize = touched.size;
-        Object.entries(hydratedData).forEach(([key, value]) => {
-          if (touched.has(key)) return;
-          if (data[key] === value) return;
-          data[key] = value;
-          touched.add(key);
-        });
-        // has change
-        if (touched.size !== prevSize) {
-          notifyChange();
-        }
+      const prevSize = touched.size;
+      Object.entries(hydratedData).forEach(([key, value]) => {
+        if (touched.has(key)) return;
+        if (data[key] === value) return;
+        data[key] = value;
+        touched.add(key);
+      });
+      // has change
+      if (touched.size !== prevSize) {
+        notifyChange();
       }
     },
     $get(prop, state) {
@@ -1338,7 +1364,7 @@ const create: Create = (...args: any[]): any => {
         }
       }
     },
-    $prop(prop: any): any {
+    $prop(prop) {
       let accessor = propAccessors.get(prop);
       if (!accessor) {
         accessor = createAccessor(model, prop);
@@ -1346,73 +1372,44 @@ const create: Create = (...args: any[]): any => {
       }
       return accessor;
     },
-  };
-
-  // is family model
-  if (familyKeyProp) {
-    const compareFn = getCompareFunction(familyKeyCompare, keyCompare);
-
-    const findMember = <T>(
-      map: Map<any, T>,
-      key: any
-    ): [any, T | undefined] => {
-      if (key && (Array.isArray(key) || typeof key === "object")) {
-        const keyIterator = map.entries();
-        while (true) {
-          const { value, done } = keyIterator.next();
-          if (done) break;
-          if (compareFn(value[0], key)) {
-            return value;
-          }
-        }
-        return [, undefined];
-      } else {
-        return [key, map.get(key)];
+    $child(prop) {
+      if (!data[prop]) {
+        throw new Error("The child data cannot be null or undefined");
       }
-    };
 
-    // add special props for family model
-    Object.assign(api, {
-      [familyProp]: (key: any) => {
-        let [mapKey = key, member] = findMember(family, key);
-        if (!member) {
-          const [, hydratedData] = familyHydratedData
-            ? findMember(familyHydratedData, mapKey)
-            : [];
-
-          member = create({
-            ...props,
-            ...hydratedData,
-            [familyKeyProp as string]: key,
-          });
-
-          (member as unknown as InternalModelApi).$$initMember(mapKey, family);
-          family.set(mapKey, member);
-        }
-        return member;
-      },
-    });
-  }
+      let child = children.get(prop);
+      if (!child) {
+        child = create({ ...data[prop] });
+        // when child data changed, update child data back to the parent
+        child.$listen(() => {
+          if (child!.__isParentMergingChildData) return;
+          model[prop] = { ...child?.$data() };
+        });
+        children.set(prop, child);
+      }
+      return child;
+    },
+  };
 
   model = {
     ...api,
     listen: api.$listen,
   } as any;
 
-  const initialProps: any = { ...props };
+  const overridenProps: any = { ...props };
   const propsMetas: Record<string, PropMeta> = {};
   const onCreates: VoidFunction[] = [];
   // injector must run before property bindings
   globalInjectors?.forEach((injector) => {
-    const result = injector(api, initialProps);
+    const result = injector(api, overridenProps);
     if (typeof result === "function") {
       onCreates.push(result);
     }
   });
 
   // bind props
-  Object.keys(initialProps).forEach((key) => {
-    const value = initialProps[key];
+  Object.keys(overridenProps).forEach((key) => {
+    const value = overridenProps[key];
 
     if (key.startsWith("$meta")) {
       Object.assign(propsMetas, value);
@@ -1426,7 +1423,7 @@ const create: Create = (...args: any[]): any => {
     if (process.env.NODE_ENV !== "production") {
       if (firstChar === "_") {
         if (key.startsWith("_get") || key.startsWith("_set")) {
-          if (!hasProp(key.slice(4), initialProps)) {
+          if (!hasProp(key.slice(4), overridenProps)) {
             console.warn(`No prop is matched for setter/getter ${key}`);
           }
         } else if (
@@ -1435,20 +1432,20 @@ const create: Create = (...args: any[]): any => {
           key.startsWith("_on")
         ) {
           if (key.endsWith("StateChange")) {
-            if (!hasProp(key.slice(3, -11), initialProps)) {
+            if (!hasProp(key.slice(3, -11), overridenProps)) {
               console.warn(
                 `No prop is matched for state change handler ${key}`
               );
             }
           } else if (key.endsWith("Change")) {
-            if (!hasProp(key.slice(3, -6), initialProps)) {
+            if (!hasProp(key.slice(3, -6), overridenProps)) {
               console.warn(
                 `No prop is matched for value change handler ${key}`
               );
             }
           }
         } else if (key !== "_valAll" && key.startsWith("_val")) {
-          if (!hasProp(key.slice(8), initialProps)) {
+          if (!hasProp(key.slice(8), overridenProps)) {
             console.warn(`No prop is matched for validator ${key}`);
           }
         }
@@ -1505,8 +1502,8 @@ const create: Create = (...args: any[]): any => {
     } else {
       const getterKey = "_get" + pascalCase(key);
       const setterKey = "_set" + pascalCase(key);
-      const hasGetter = typeof props[getterKey] === "function";
-      const hasSetter = typeof props[setterKey] === "function";
+      const hasGetter = typeof overridenProps[getterKey] === "function";
+      const hasSetter = typeof overridenProps[setterKey] === "function";
       // public prop
       Object.defineProperty(model, key, {
         enumerable: true,
@@ -1527,6 +1524,16 @@ const create: Create = (...args: any[]): any => {
           }
           if (value === data[key]) return;
           data[key] = value;
+          const child = children.get(key);
+          if (child) {
+            // avoid child's change listener update data back to parent
+            try {
+              child.__isParentMergingChildData = true;
+              child.$merge(value);
+            } finally {
+              child.__isParentMergingChildData = false;
+            }
+          }
           touched.add(key);
           changeToken = {};
           // trigger individual prop change event
@@ -2072,6 +2079,9 @@ function createAccessor<TValue = any, TProps = AnyProps>(
     set(state, value) {
       model.$set(prop, state, value);
     },
+    change(value: any) {
+      model[prop] = value;
+    },
     $listen(listener) {
       return model.$listen(prop, listener);
     },
@@ -2085,7 +2095,7 @@ export {
   Wrapper,
   ModelSlice,
   Accessor,
-  FamilyModel,
+  Family,
   MemberModel,
   Create,
   UseModelOptions,

@@ -170,28 +170,25 @@ test("_onInit", () => {
 });
 
 test("family: key is primitive type", () => {
-  const root = create(
-    {
-      key: 0,
-      count: 1,
-      other: "",
-      _onInit() {
-        this.count += this.key;
-      },
+  const root = create((key: number) => ({
+    key,
+    count: 1,
+    other: "",
+    _onInit() {
+      this.count += this.key;
     },
-    "key"
-  );
+  }));
 
-  const m1 = root.$family(1);
-  const m2 = root.$family(2);
+  const m1 = root(1);
+  const m2 = root(2);
   expect(m1.count).toBe(2);
   expect(m2.count).toBe(3);
 });
 
 test("family: key is array type", () => {
-  const root = create({ key: [] as number[] }, "key");
-  const m1 = root.$family([1]);
-  const m2 = root.$family([1]);
+  const root = create((key: number[]) => ({ key }));
+  const m1 = root([1]);
+  const m2 = root([1]);
   expect(m1.key).toBe(m2.key);
   expect(m1).toBe(m2);
 });
@@ -646,7 +643,6 @@ test("chaining model", async () => {
     count: 1,
     _onInit() {
       of(this).$sync(counter, (x) => {
-        console.log(x.data);
         const count = x.data;
         this.cancel();
         if (count) {
@@ -683,4 +679,13 @@ test("state", () => {
   expect(model.prop1).toBe(2);
   prop1.set(touched, true);
   expect(model.$get("prop1", touched)).toBe(true);
+});
+
+test("child", () => {
+  const model = create({ level1: { level2: { level3: { count: 1 } } } });
+  const child = model.$child("level1").$child("level2").$child("level3");
+  child.count++;
+  expect(model.$data()).toEqual({
+    level1: { level2: { level3: { count: 2 } } },
+  });
 });
