@@ -50,7 +50,7 @@ type ActivityFilter<TProp = AnyProps> =
 type Observer = (args: ObserverArgs) => void;
 type Wrapper = (next: Function, model: Model) => Function;
 type Injector = (api: ModelApi, props: any) => any;
-type Comparer<T = any> = "strict" | "shallow" | ((a: T, b: T) => boolean);
+type Comparer<T = any> = (a: T, b: T) => boolean;
 type ConcurrentMode = (callback: Function, onCancel?: VoidFunction) => Function;
 
 type Data<T> = {
@@ -93,27 +93,27 @@ interface CacheItem {
 }
 
 interface Sync {
-  <TData>(model: Task<TData>, defaultValue?: TData): TData;
-  <TData>(models: Task<TData>[], defaultValue?: TData[]): TData[];
-  <TData>(models: Set<Task<TData>>, defaultValue?: TData[]): TData[];
-  <TData>(models: Map<any, Task<TData>>, defaultValue?: TData[]): TData[];
+  <TData>(model: Loadable<TData>, defaultValue?: TData): TData;
+  <TData>(models: Loadable<TData>[], defaultValue?: TData[]): TData[];
+  <TData>(models: Set<Loadable<TData>>, defaultValue?: TData[]): TData[];
+  <TData>(models: Map<any, Loadable<TData>>, defaultValue?: TData[]): TData[];
   <TData, TResult>(
-    model: Task<TData>,
+    model: Loadable<TData>,
     selector: (data: TData) => TResult,
     defaultValue?: TResult
   ): TResult;
   <TData, TResult>(
-    models: Task<TData>[],
+    models: Loadable<TData>[],
     selector: (data: TData[]) => TResult,
     defaultValue?: TResult
   ): TResult;
   <TData, TResult>(
-    models: Set<Task<TData>>,
+    models: Set<Loadable<TData>>,
     selector: (data: TData[]) => TResult,
     defaultValue?: TResult
   ): TResult;
   <TData, TResult>(
-    models: Map<any, Task<TData>>,
+    models: Map<any, Loadable<TData>>,
     selector: (data: TData[]) => TResult,
     defaultValue?: TResult
   ): TResult;
@@ -123,7 +123,7 @@ interface AsyncModelLoadContext extends Cancellable {
   signal: any;
 }
 
-interface Task<TData = any> {
+interface Loadable<TData = any> {
   data: TData | undefined;
   error: any;
   loading: boolean;
@@ -131,7 +131,7 @@ interface Task<TData = any> {
 }
 
 interface AsyncModel<TData = any, TParams extends any[] = any[]>
-  extends Task<TData> {
+  extends Loadable<TData> {
   /**
    *
    * @param loader
@@ -611,15 +611,6 @@ function shallowCompare(a: any, b: any) {
   return false;
 }
 
-function getCompareFunction<T = any>(
-  compareFn?: Comparer<T>,
-  defaultCompareFn = strictCompare
-) {
-  if (typeof compareFn === "function") return compareFn;
-  if (compareFn === "shallow") return shallowCompare;
-  return defaultCompareFn;
-}
-
 function keyCompare(a: any, b: any) {
   return shallowCompare(a, b);
 }
@@ -671,7 +662,7 @@ function createWatchable<
 
       const context = getContext();
       let prev = selector(context);
-      const cf = getCompareFunction(options?.compare);
+      const cf = options?.compare ?? strictCompare;
       const wrappedCallback = options.mode ? options.mode(callback) : callback;
       return context.$listen(() => {
         const next = selector(context);
@@ -763,7 +754,7 @@ function createSlice<TProps, TResult>(
       Object.assign(slice, result);
       emitter.emit();
     },
-    "shallow"
+    shallowCompare
   );
   return slice as any;
 }
@@ -840,7 +831,7 @@ const create: Create = (...args: any[]): any => {
     const family = new Map<any, Model>();
     let familyHydratedData = new Map<any, any>();
 
-    const compareFn = getCompareFunction(familyKeyCompare, keyCompare);
+    const compareFn = familyKeyCompare ?? keyCompare;
 
     const findMember = <T>(
       map: Map<any, T>,
@@ -1711,7 +1702,7 @@ const useModel: UseModel = (...args: any[]): any => {
         // has selector
         if (selectorRef.current) {
           const nextValue = selectorRef.current(...listeners);
-          const compareFn = getCompareFunction(compareFnRef.current);
+          const compareFn = compareFnRef.current ?? strictCompare;
           // nothing change
           if (compareFn(prevValue, nextValue)) return;
           prevValue = nextValue;
@@ -1892,12 +1883,12 @@ function createCancellable(onCancel?: VoidFunction) {
   return cancellable;
 }
 
-const sync: Sync = (models: any, ...args: any[]) => {
+const sync: Sync = (loadables: any, ...args: any[]) => {
   let selector: Function | undefined;
   let defaultValue: any;
   let hasDefaultValue = false;
   let multiple = true;
-  let array: Task[];
+  let array: Loadable[];
 
   if (typeof args[0] === "function") {
     [selector, defaultValue] = args;
@@ -1907,21 +1898,21 @@ const sync: Sync = (models: any, ...args: any[]) => {
     hasDefaultValue = !!args.length;
   }
 
-  if (Array.isArray(models)) {
-    array = models;
-  } else if (models instanceof Set) {
-    array = Array.from(models);
-  } else if (models instanceof Map) {
-    array = Array.from(models.values());
+  if (Array.isArray(loadables)) {
+    array = loadables;
+  } else if (loadables instanceof Set) {
+    array = Array.from(loadables);
+  } else if (loadables instanceof Map) {
+    array = Array.from(loadables.values());
   } else {
     multiple = false;
-    array = [models];
+    array = [loadables];
   }
 
   let error: any;
 
-  array.some((model) => {
-    error = model.error;
+  array.some((loadable) => {
+    error = loadable.error;
     return !!error;
   });
 
@@ -2108,6 +2099,7 @@ export {
   AsyncModel,
   Emitter,
   CancellablePromise,
+  Loadable,
   as,
   of,
   isModel,
@@ -2121,6 +2113,8 @@ export {
   createEmitter,
   createCancellable,
   debounce,
+  strictCompare as strict,
+  shallowCompare as shallow,
   throttle,
   once,
   droppable,
